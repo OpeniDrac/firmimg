@@ -2,6 +2,11 @@
 # Based on reverse engineering information of Matt blog
 # Link : http://blog.stuffbymatt.ca/Firmware/dell_idrac6.html
 
+if [ ! -f /tmp/ESM_Firmware_9GJYW_WN32_2.90_A00.EXE ]; then
+	wget https://downloads.dell.com/FOLDER04448404M/1/ESM_Firmware_9GJYW_WN32_2.90_A00.EXE -P /tmp
+	unzip -p /tmp/ESM_Firmware_9GJYW_WN32_2.90_A00.EXE payload/firmimg.d6 > firmimg.d6
+fi
+
 # Firmware image format
 headerOffset=0
 headerSize=512
