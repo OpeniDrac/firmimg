@@ -1,0 +1,3 @@
+[submodule "cramfs"]
+	path = cramfs
+	url = https://github.com/OpeniDrac/cramfs
