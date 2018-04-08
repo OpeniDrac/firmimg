@@ -1,4 +1,7 @@
 #!/bin/sh
+# Base on reserver engineering information of Matt blog
+# Link : http://blog.stuffbymatt.ca/Firmware/dell_idrac6.html
+
 # Firmware image format
 headerOffset=0
 headerSize=512
