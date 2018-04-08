@@ -1,5 +1,5 @@
 #!/bin/sh
-# Base on reserver engineering information of Matt blog
+# Based on reverse engineering information of Matt blog
 # Link : http://blog.stuffbymatt.ca/Firmware/dell_idrac6.html
 
 # Firmware image format
