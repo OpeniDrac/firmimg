@@ -36,6 +36,49 @@ fi
 # Debug
 #binwalk firmimg.d6
 
+extract() {
+	echo "Extracting firmware..."
+
+	mkdir -p data
+
+	# Extract header
+	echo "[0/4] Extracting header..."
+	dd if=firmimg.d6 of=data/header.bin bs=1 skip=$headerSize count=$headerSize status=progress
+	echo "[1/4] Header extracted !"
+
+	# Extract uImage
+	echo "[1/4] Extracting uImage..."
+	dd if=firmimg.d6 of=data/uImage bs=1 skip=$uImageOffset count=$uImageSize status=progress
+	echo "[2/4] Complete !"
+
+	# Extract cramfs
+	echo "[2/4] Extracting cramfs..."
+	dd if=firmimg.d6 of=data/cramfs bs=1 skip=$cramfsOffset count=$cramfsSize status=progress
+	echo "[3/4] Complete !"
+
+	# Extract unknown data
+	echo "[3/4] Extracting unknown data..."
+	dd if=firmimg.d6 of=data/unknown_data.bin bs=1 skip=$unknownDataOffset count=$unknownDataSize status=progress
+	echo "[4/4] Complete !"
+
+	echo "Firmware extracted !"
+}
+
+build() {
+	echo "Build"
+}
+
+help() {
+cat << EOF
+firmimg.sh [COMMAND]
+
+Command:
+	extract		Extract cramfs of firmimg.d6
+	build		Build firmimg.d6 of cramfs directory
+	help		Show help
+EOF
+}
+
 cat << EOF
 ----------------------------------------
 Dell iDRAC Monolithic Release 2.90
@@ -55,28 +98,13 @@ Firmware image status	: $fileStatus
 ----------------------------------------
 EOF
 
-echo "Extracting firmware..."
+if [ "$1" == "extract" ]; then
+	extract
+elif [ "$1" == "build" ]; then
+	build
+elif [ "$1" == "help" ]; then
+	help
+else
+	echo "Unknown command"
+fi
 
-mkdir -p data
-
-# Extract header
-echo "[0/4] Extracting header..."
-dd if=firmimg.d6 of=data/header.bin bs=1 skip=$headerSize count=$headerSize status=progress
-echo "[1/4] Header extracted !"
-
-# Extract uImage
-echo "[1/4] Extracting uImage..."
-dd if=firmimg.d6 of=data/uImage bs=1 skip=$uImageOffset count=$uImageSize status=progress
-echo "[2/4] Complete !"
-
-# Extract cramfs
-echo "[2/4] Extracting cramfs..."
-dd if=firmimg.d6 of=data/cramfs bs=1 skip=$cramfsOffset count=$cramfsSize status=progress
-echo "[3/4] Complete !"
-
-# Extract unknown data
-echo "[3/4] Extracting unknown data..."
-dd if=firmimg.d6 of=data/unknown_data.bin bs=1 skip=$unknownDataOffset count=$unknownDataSize status=progress
-echo "[4/4] Complete !"
-
-echo "Firmware extracted !"
