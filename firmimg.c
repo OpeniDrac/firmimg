@@ -12,6 +12,9 @@
 #define DRAC 1
 #define IDRAC 2
 
+// iDrac 6 : 01 01 03 00
+// iDrac 7 : 01 01 04 00
+
 struct firmimg_entry
 {
 	char* name;
