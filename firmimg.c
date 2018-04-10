@@ -12,10 +12,7 @@
 #define DRAC 1
 #define IDRAC 2
 
-#define MODULAR 0
-#define MONOLITHIC 1
-
-struct firmimg_data
+struct firmimg_entry
 {
 	char* name;
 	char* file_name;
@@ -28,12 +25,8 @@ struct firmimg
 {
 	int sys_type;
 	int sys_version;
-	float sys_release;
-	int hw_type;
-	unsigned int file_crc32;
-	size_t file_size;
-	int content_length;
-	const struct firmimg_data* content;
+	int num_entries;
+	const struct firmimg_entry* entries;
 };
 
 struct firmimg_header
@@ -42,7 +35,7 @@ struct firmimg_header
 	uLong cramfs_crc32;
 };
 
-const struct firmimg_data iDRAC6_2_90_content[4] = {
+const struct firmimg_entry iDRAC6_entries[4] = {
 	{
 		.name = "header",
 		.file_name = "header.bin",
@@ -73,15 +66,11 @@ const struct firmimg_data iDRAC6_2_90_content[4] = {
 	}
 };
 
-const struct firmimg iDRAC6_2_90 = {
+const struct firmimg iDRAC6_schema = {
 	.sys_type = IDRAC,
 	.sys_version = 6,
-	.sys_release = 2.90,
-	.hw_type = MONOLITHIC,
-	.file_crc32 = 0x397ac2f8,
-	.file_size = 56826936,
-	.content_length = 4,
-	.content = iDRAC6_2_90_content
+	.num_entries = 4,
+	.entries = iDRAC6_entries
 };
 
 uLong get_crc32(FILE* file)
@@ -94,8 +83,6 @@ uLong get_crc32(FILE* file)
 	size_t buf_read;
 	while((buf_read = fread(buf, sizeof(Bytef), sizeof(buf), file)) > 0)
 		crc = crc32(crc, buf, buf_read);
-
-	rewind(file);
 
 	return crc;
 }
@@ -123,19 +110,21 @@ void fcopy(FILE* src_fp, size_t offset, size_t len, FILE* dst_fp)
 	rewind(dst_fp);
 }
 
-void show_firmimg_detail(const struct firmimg* firmware_image)
+void verify(const char* file_path)
 {
+	FILE* firmimg_fp = fopen(file_path, "r");
+
 	printf("------------------------------------------------------------");
-	printf("Firmware image name : Dell %s %d %s Release %.2f\n",
+	/*printf("Firmware image name : Dell %s %d %s Release %.2f\n",
 		(firmware_image->sys_type == BMC ? "BMC" :
 			(firmware_image->sys_type == DRAC ? "DRAC" :
 				(firmware_image->sys_type == IDRAC ? "iDRAC" : "Unknown"))),
 		firmware_image->sys_version,
 		(firmware_image->hw_type == MODULAR ? "Modular" :
 			(firmware_image->hw_type == MONOLITHIC ? "Monolithic" : "Unknown")),
-		firmware_image->sys_release);
+		firmware_image->sys_release);*/
 	printf("------------------------------------------------------------");
-	printf("CRC32 checksum : %x\n", firmware_image->file_crc32);
+	/*printf("CRC32 checksum : %x\n", firmware_image->file_crc32);
 	printf("File size : %lu bytes\n", firmware_image->file_size);
 	printf("Content data :\n");
 
@@ -146,11 +135,13 @@ void show_firmimg_detail(const struct firmimg* firmware_image)
 		printf("\tOffset : %zu\n", data.offset);
 		printf("\tReserved : %zu\n", data.reserved);
 		printf("\tSize : %zu\n", data.size);
-	}
+	}*/
 	printf("------------------------------------------------------------");
+
+	fclose(firmimg_fp);
 }
 
-struct firmimg_header get_header(FILE* fp)
+struct firmimg_header read_header(FILE* fp)
 {
 	struct firmimg_header header = {};
 
@@ -168,68 +159,64 @@ struct firmimg_header get_header(FILE* fp)
 	return header;
 }
 
-void unpack()
+void unpack(char* file_path)
 {
-	const struct firmimg* firmware_image = &iDRAC6_2_90;
-	show_firmimg_detail(firmware_image);
+	const struct firmimg* firmimg_schema = &iDRAC6_schema;
 
-	FILE* firmimg_fp = fopen("firmimg.d6", "r");
-	fseek(firmimg_fp, 0L, SEEK_END);
+	FILE* firmimg_fp = fopen(file_path, "r");
+	/*fseek(firmimg_fp, 0L, SEEK_END);
 	size_t file_size = ftell(firmimg_fp);
-	fseek(firmimg_fp, 0L, SEEK_SET);
+	fseek(firmimg_fp, 0L, SEEK_SET);*/
 
-	const struct firmimg_header firmware_image_header = get_header(firmimg_fp);
+	const struct firmimg_header firmimg_header = read_header(firmimg_fp);
 
-	printf("File size: %ld bytes\n", file_size);
-	printf("Firmware size status : %s\n",
-		(firmware_image->file_size == file_size ? "VALID" : "INVALID"));
+	printf("Header CRC32 : %x\n", (unsigned int)firmimg_header.header_crc32);
+	printf("cramfs CRC32 : %x\n", (unsigned int)firmimg_header.cramfs_crc32);
 
-	uLong file_crc32 = get_crc32(firmimg_fp);
-	printf("File CRC32: %lx\n", file_crc32);
-	printf("Firmware CRCR32 status : %s\n",
-		(firmware_image->file_crc32 == file_crc32 ?  "VALID" : "INVALID"));
+	char crc32_test[4] = {0x38, 0x2E, 0x02, 0x00};
+	printf("%f", *((float*)crc32_test));
 
-	if(firmware_image->file_size == file_size && firmware_image->file_crc32 == file_crc32)
+	struct stat st;
+	if(stat("data", &st) != 0)
 	{
-		struct stat st;
-		if(stat("data", &st) != 0)
-		{
-			mkdir("data", S_IRWXU);
-		}
-
-		char* data_dir_path = "data/";
-		for(int i = 0; i < firmware_image->content_length; i++)
-		{
-			const struct firmimg_data data = firmware_image->content[i];
-			char file_path[PATH_MAX] = "\0";
-			strcat(file_path, data_dir_path);
-			strcat(file_path, data.file_name);
-
-			FILE* data_fp = fopen(file_path, "w");
-			if(data_fp == NULL)
-			{
-				perror("Failed to open");
-				continue;
-			}
-
-			printf("[%d/%d] Unpack %s data to %s...\n", i, firmware_image->content_length, data.name, data.file_name);
-			fcopy(firmimg_fp, data.offset, data.reserved, data_fp);
-			printf("[%d/%d] Done !\n", i, firmware_image->content_length);
-
-			fclose(data_fp);
-		}
-
-		printf("Firmware image header CRC32 : %lx\n", firmware_image_header.header_crc32);
-		printf("Firmware cramfs CRC32 : %lx\n", firmware_image_header.cramfs_crc32);
-		FILE* cramfs_fp = fopen("data/cramfs", "r");
-		uLong cramfs_crc32 = get_crc32(cramfs_fp);
-		fclose(cramfs_fp);
-
-		printf("cramfs file CRC32 : %lx\n", cramfs_crc32);
-
-		printf("cramfs status : %s\n",
-			(cramfs_crc32 == firmware_image_header.cramfs_crc32 ? "VALID" : "INVALID"));
+		mkdir("data", S_IRWXU);
 	}
+
+	char* entries_dir_path = "data/";
+	for(int i = 0; i < firmimg_schema->num_entries; i++)
+	{
+		const struct firmimg_entry entry = firmimg_schema->entries[i];
+		char entry_file_path[PATH_MAX] = "\0";
+		strcat(entry_file_path, entries_dir_path);
+		strcat(entry_file_path, entry.file_name);
+
+		FILE* entry_fp = fopen(entry_file_path, "w");
+		if(entry_fp == NULL)
+		{
+			perror("Failed to open entry");
+			continue;
+		}
+
+		printf("[%d/%d] Unpack %s entry to %s...\n", i, firmimg_schema->num_entries, entry.name, entry.file_name);
+
+		fcopy(firmimg_fp, entry.offset, entry.reserved, entry_fp);
+
+		printf("[%d/%d] CRC32 : %lx\n", i, firmimg_schema->num_entries, get_crc32(entry_fp));
+		printf("[%d/%d] Done !\n", i, firmimg_schema->num_entries);
+
+		fclose(entry_fp);
+	}
+
+	/*printf("Firmware image header CRC32 : %lx\n", firmware_image_header.header_crc32);
+	printf("Firmware cramfs CRC32 : %lx\n", firmware_image_header.cramfs_crc32);
+	FILE* cramfs_fp = fopen("data/cramfs", "r");
+	uLong cramfs_crc32 = get_crc32(cramfs_fp);
+	fclose(cramfs_fp);
+
+	printf("cramfs file CRC32 : %lx\n", cramfs_crc32);
+
+	printf("cramfs status : %s\n",
+		(cramfs_crc32 == firmware_image_header.cramfs_crc32 ? "VALID" : "INVALID"));*/
 
 	fclose(firmimg_fp);
 }
@@ -246,6 +233,7 @@ void help()
 		"command:\n" \
 		"\tunpack\t\tUnpack frimware image\n" \
 		"\tpack\t\tPack firmware image\n" \
+		"\tverify\t\tVerify firmware image\n" \
 		"\thelp\t\tShow help\n"
 	);
 }
@@ -256,9 +244,11 @@ int main(int argc, char **argv)
 		goto unknown_command;
 
 	if(strcmp(argv[1], "unpack") == 0)
-		unpack();
+		unpack("firmimg.d6");
 	else if(strcmp(argv[1], "pack") == 0)
-		printf("Pack");
+		pack();
+	else if(strcmp(argv[1], "verify") == 0)
+		verify("firmimg.d6");
 	else if(strcmp(argv[1], "help") == 0)
 		help();
 	else
