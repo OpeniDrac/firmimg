@@ -8,12 +8,31 @@
 #include <zlib.h>
 #include <math.h>
 
+#define DEFAULT_BUFFER 1024
+
 #define BMC 0
 #define DRAC 1
 #define IDRAC 2
 
-// iDrac 6 : 01 01 03 00
-// iDrac 7 : 01 01 04 00
+#define IDRAC6 0x30101
+#define IDRAC7 0x40101
+
+/*
+iDrac 6 1.85 A00
+
+          |Header CRC32--Ver. & Rel.--Unknown    --Unknown    --Unknown    --Unknown     |
+0000:0000 | C9 D4 D9 42  01 01 03 00  01 55 03 00  00 8E 47 03  01 02 00 00  01 13 07 00 | ÉÔÙB.....U....G.........
+0000:0018 | 57 48 4F 56  00 00 00 00  00 02 00 00  E0 5B 44 00  F6 3F 64 32  00 5E 44 00 | WHOV........à[D.ö?d2.^D.
+0000:0030 | 00 00 01 03  F2 AB 8C 87  00 5E 45 03  38 2E 02 00  55 8A 1A 65  00 00 00 00 | ....ò«...^E.8...U..e....
+*/
+
+/*
+iDrac 6 2.85 A00
+
+0000:0000 | 56 EA 53 65  01 01 03 00  02 55 04 00  00 4E 60 03  01 02 00 00  01 13 08 00 | VêSe.....U...N`.........
+0000:0018 | 57 48 4F 56  00 00 00 00  00 02 00 00  E0 5B 44 00  AA D1 58 2A  00 5E 44 00 | WHOV........à[D.ªÑX*.^D.
+0000:0030 | 00 C0 19 03  02 75 A0 F4  00 1E 5E 03  38 2E 02 00  6C BB 00 32  00 00 00 00 | .À...u ô..^.8...l».2....
+*/
 
 struct firmimg_entry
 {
@@ -26,25 +45,26 @@ struct firmimg_entry
 
 struct firmimg
 {
-	int sys_type;
-	int sys_version;
+	int fw_type;
+	uint32_t fw_version;
 	int num_entries;
 	const struct firmimg_entry* entries;
 };
 
 struct firmimg_header
 {
-	uLong header_crc32;
-	uLong cramfs_crc32;
+	uint32_t header_crc32;
+	uint32_t idrac_version;
+	uint32_t cramfs_crc32;
 };
 
 const struct firmimg_entry iDRAC6_entries[4] = {
 	{
 		.name = "header",
 		.file_name = "header.bin",
-		.offset = 0,
-		.reserved = 512,
-		.size = 512
+		.offset = 4,
+		.reserved = 508,
+		.size = 508
 	},
 	{
 		.name = "uImage",
@@ -70,43 +90,58 @@ const struct firmimg_entry iDRAC6_entries[4] = {
 };
 
 const struct firmimg iDRAC6_schema = {
-	.sys_type = IDRAC,
-	.sys_version = 6,
+	.fw_type = IDRAC,
+	.fw_version = IDRAC6,
 	.num_entries = 4,
 	.entries = iDRAC6_entries
 };
 
-uLong get_crc32(FILE* file)
+uint32_t fcrc32(FILE* fp, size_t offset, size_t count)
 {
-	rewind(file);
+	fseek(fp, offset, SEEK_SET);
 
-	uLong crc = crc32(0L, Z_NULL, 0);
-	Bytef buf[1024];
+	uint32_t crc = crc32(0L, Z_NULL, 0);
+	Bytef buf[DEFAULT_BUFFER];
 
-	size_t buf_read;
-	while((buf_read = fread(buf, sizeof(Bytef), sizeof(buf), file)) > 0)
-		crc = crc32(crc, buf, buf_read);
+	int num = ceil((float)count / (float)sizeof(buf));
+	size_t count_left = count;
+	int result;
+	for(int i = 0; i < num; i++)
+	{
+		size_t count_read = (count_left > sizeof(buf)) ? sizeof(buf) : count_left;
+
+		result = fread(buf, sizeof(Bytef), count_read, fp);
+		if(!result)
+		{
+			perror("Failed to read");
+			break;
+		}
+
+		crc = crc32(crc, buf, count_read);
+
+		count_left -= sizeof(buf);
+	}
 
 	return crc;
 }
 
-void fcopy(FILE* src_fp, size_t offset, size_t len, FILE* dst_fp)
+void fcopy(FILE* src_fp, size_t offset, size_t count, FILE* dst_fp)
 {
 	fseek(src_fp, offset, SEEK_SET);
 	rewind(dst_fp);
 
-	char buf[1024];
+	char buf[DEFAULT_BUFFER];
 
-	int num = ceil((float)len / (float)sizeof(buf));
-	size_t length_left = len;
+	int num = ceil((float)count / (float)sizeof(buf));
+	size_t count_left = count;
 	for(int i = 0; i < num; i++)
 	{
-		size_t read_size = (length_left > sizeof(buf)) ? sizeof(buf) : length_left;
+		size_t count_read = (count_left > sizeof(buf)) ? sizeof(buf) : count_left;
 
-		fread(buf, sizeof(char), read_size, src_fp);
-		fwrite(buf, sizeof(char), read_size, dst_fp);
+		fread(buf, sizeof(char), count_read, src_fp);
+		fwrite(buf, sizeof(char), count_read, dst_fp);
 
-		length_left -= sizeof(buf);
+		count_left -= sizeof(buf);
 	}
 
 	rewind(src_fp);
@@ -152,32 +187,45 @@ struct firmimg_header read_header(FILE* fp)
 
 	Bytef crc32_buf[4];
 	fread(crc32_buf, sizeof(Bytef), sizeof(crc32_buf), fp);
-	header.header_crc32 = *((uLong*)crc32_buf);
+	header.header_crc32 = *((uint32_t*)crc32_buf);
+
+	fread(crc32_buf, sizeof(Bytef), sizeof(crc32_buf), fp);
+	header.idrac_version = *((uint32_t*)crc32_buf);
 
 	fseek(fp, 52, SEEK_SET);
 
 	fread(crc32_buf, sizeof(Bytef), sizeof(crc32_buf), fp);
-        header.cramfs_crc32 = *((uLong*)crc32_buf);
+	header.cramfs_crc32 = *((uint32_t*)crc32_buf);
 
 	return header;
 }
 
 void unpack(char* file_path)
 {
-	const struct firmimg* firmimg_schema = &iDRAC6_schema;
 
 	FILE* firmimg_fp = fopen(file_path, "r");
-	/*fseek(firmimg_fp, 0L, SEEK_END);
-	size_t file_size = ftell(firmimg_fp);
-	fseek(firmimg_fp, 0L, SEEK_SET);*/
 
 	const struct firmimg_header firmimg_header = read_header(firmimg_fp);
 
+	const struct firmimg* firmimg_schema;
+	switch(firmimg_header.idrac_version)
+	{
+		case IDRAC6:
+			firmimg_schema = &iDRAC6_schema;
+			break;
+		default:
+			errno = ENODATA;
+			perror("No schema found");
+			goto unpack_close;
+			break;
+	}
+
+	printf("iDrac version : %s\n", (firmimg_header.idrac_version == IDRAC6 ? "6" : "Unknown"));
 	printf("Header CRC32 : %x\n", (unsigned int)firmimg_header.header_crc32);
 	printf("cramfs CRC32 : %x\n", (unsigned int)firmimg_header.cramfs_crc32);
 
 	char crc32_test[4] = {0x38, 0x2E, 0x02, 0x00};
-	printf("%f", *((float*)crc32_test));
+	printf("%f\n", *((float*)crc32_test));
 
 	struct stat st;
 	if(stat("data", &st) != 0)
@@ -193,7 +241,7 @@ void unpack(char* file_path)
 		strcat(entry_file_path, entries_dir_path);
 		strcat(entry_file_path, entry.file_name);
 
-		FILE* entry_fp = fopen(entry_file_path, "w");
+		FILE* entry_fp = fopen(entry_file_path, "r+");
 		if(entry_fp == NULL)
 		{
 			perror("Failed to open entry");
@@ -204,24 +252,14 @@ void unpack(char* file_path)
 
 		fcopy(firmimg_fp, entry.offset, entry.reserved, entry_fp);
 
-		printf("[%d/%d] CRC32 : %lx\n", i, firmimg_schema->num_entries, get_crc32(entry_fp));
+		printf("[%d/%d] %s CRC32 : %x\n", i, firmimg_schema->num_entries, entry.name, fcrc32(entry_fp, 0, entry.reserved));
 		printf("[%d/%d] Done !\n", i, firmimg_schema->num_entries);
 
 		fclose(entry_fp);
 	}
 
-	/*printf("Firmware image header CRC32 : %lx\n", firmware_image_header.header_crc32);
-	printf("Firmware cramfs CRC32 : %lx\n", firmware_image_header.cramfs_crc32);
-	FILE* cramfs_fp = fopen("data/cramfs", "r");
-	uLong cramfs_crc32 = get_crc32(cramfs_fp);
-	fclose(cramfs_fp);
-
-	printf("cramfs file CRC32 : %lx\n", cramfs_crc32);
-
-	printf("cramfs status : %s\n",
-		(cramfs_crc32 == firmware_image_header.cramfs_crc32 ? "VALID" : "INVALID"));*/
-
-	fclose(firmimg_fp);
+	unpack_close:
+		fclose(firmimg_fp);
 }
 
 void pack()
