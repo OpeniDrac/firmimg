@@ -66,6 +66,7 @@ struct firmimg_header
 	uint32_t header_crc32;
 	uint32_t idrac_version;
 	char fw_version[255];
+	uint8_t fw_build;
 	uint32_t cramfs_crc32;
 };
 
@@ -207,10 +208,12 @@ struct firmimg_header read_header(FILE* fp)
 	fseek(fp, 8, SEEK_SET);
 	fread(fw_version, sizeof(unsigned char), 2, fp);
 
+	header.fw_build = fgetc(fp);
+
 	fseek(fp, 28, SEEK_SET);
 	fread(fw_version + 2, sizeof(unsigned char), 2, fp);
 
-	sprintf(header.fw_version, "%d.%d.%d.%d\n", fw_version[0], fw_version[1], fw_version[2], fw_version[3]);
+	sprintf(header.fw_version, "%d.%d.%d.%d", fw_version[0], fw_version[1], fw_version[2], fw_version[3]);
 
 	fseek(fp, 52, SEEK_SET);
 
@@ -245,8 +248,10 @@ void unpack(char* file_path)
 			break;
 	}
 
-	printf("Integrated Dell Remote Access Controller version : %s\n", (firmimg_header.idrac_version == IDRAC6 ? "6" : "Unknown"));
-	printf("Firmware version : %s", firmimg_header.fw_version);
+	printf("Integrated Dell Remote Access Controller version : %s\n",
+		(firmimg_header.idrac_version == IDRAC6 ? "6" :
+			(IDRAC7 ? "7 or 8" : "Unknown")));
+	printf("Firmware version : %s (Build %d)\n", firmimg_header.fw_version, firmimg_header.fw_build);
 	printf("Header CRC32 : %x\n", (unsigned int)firmimg_header.header_crc32);
 	printf("cramfs CRC32 : %x\n", (unsigned int)firmimg_header.cramfs_crc32);
 
@@ -264,7 +269,7 @@ void unpack(char* file_path)
 		strcat(entry_file_path, entries_dir_path);
 		strcat(entry_file_path, entry.file_name);
 
-		FILE* entry_fp = fopen(entry_file_path, "r+");
+		FILE* entry_fp = fopen(entry_file_path, "w+");
 		if(entry_fp == NULL)
 		{
 			perror("Failed to open entry");
@@ -280,6 +285,8 @@ void unpack(char* file_path)
 
 		fclose(entry_fp);
 	}
+
+	printf("Test CRC32 : %x\n", fcrc32(firmimg_fp, 512, 4480000));
 
 	unpack_close:
 		fclose(firmimg_fp);
