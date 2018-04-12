@@ -14,13 +14,14 @@
 #define DRAC 1
 #define IDRAC 2
 
-#define IDRAC6 0x30101
-#define IDRAC7 0x40101
+#define IDRAC6 0x030101
+#define IDRAC7 0x040101
+#define IDRAC8 #IDRAC7
 
 /*
 iDrac 6 1.85 A00
 
-          |Header CRC32--Ver. & Rel.--Unknown    --Unknown    --Unknown    --Unknown     |
+          |Header CRC32--iDrac ver. --Ver. & Rel.--Unknown    --Unknown    --Unknown     |
 0000:0000 | C9 D4 D9 42  01 01 03 00  01 55 03 00  00 8E 47 03  01 02 00 00  01 13 07 00 | ÉÔÙB.....U....G.........
 0000:0018 | 57 48 4F 56  00 00 00 00  00 02 00 00  E0 5B 44 00  F6 3F 64 32  00 5E 44 00 | WHOV........à[D.ö?d2.^D.
 0000:0030 | 00 00 01 03  F2 AB 8C 87  00 5E 45 03  38 2E 02 00  55 8A 1A 65  00 00 00 00 | ....ò«...^E.8...U..e....
@@ -32,6 +33,15 @@ iDrac 6 2.85 A00
 0000:0000 | 56 EA 53 65  01 01 03 00  02 55 04 00  00 4E 60 03  01 02 00 00  01 13 08 00 | VêSe.....U...N`.........
 0000:0018 | 57 48 4F 56  00 00 00 00  00 02 00 00  E0 5B 44 00  AA D1 58 2A  00 5E 44 00 | WHOV........à[D.ªÑX*.^D.
 0000:0030 | 00 C0 19 03  02 75 A0 F4  00 1E 5E 03  38 2E 02 00  6C BB 00 32  00 00 00 00 | .À...u ô..^.8...l».2....
+*/
+
+/*
+iDrac 7 1.66.65 A00
+
+0000:0000 | CF B3 72 FB  01 01 04 00  01 42 07 00  00 48 C2 03  89 08 00 00  00 00 03 00 | Ï³rû.....B...HÂ.........
+0000:0018 | 44 44 52 42  41 00 00 00  00 02 00 00  D5 D5 26 00  2B 6B C8 08  00 D8 26 00 | DDRBA.......ÕÕ&.+kÈ..Ø&.
+0000:0030 | 00 C0 8E 03  B0 73 0E 0B  00 98 B5 03  F4 7F 05 00  02 2C 8A AF  00 18 BB 03 | .À..°s....µ.ô....,.¯..».
+0000:0048 | 00 30 07 00  FB 57 49 B0  00 00 00 00  00 00 00 00  00 00 00 00  00 00 00 00 | .0..ûWI°................
 */
 
 struct firmimg_entry
@@ -46,7 +56,7 @@ struct firmimg_entry
 struct firmimg
 {
 	int fw_type;
-	uint32_t fw_version;
+	uint32_t idrac_version;
 	int num_entries;
 	const struct firmimg_entry* entries;
 };
@@ -55,6 +65,7 @@ struct firmimg_header
 {
 	uint32_t header_crc32;
 	uint32_t idrac_version;
+	char fw_version[255];
 	uint32_t cramfs_crc32;
 };
 
@@ -91,7 +102,7 @@ const struct firmimg_entry iDRAC6_entries[4] = {
 
 const struct firmimg iDRAC6_schema = {
 	.fw_type = IDRAC,
-	.fw_version = IDRAC6,
+	.idrac_version = IDRAC6,
 	.num_entries = 4,
 	.entries = iDRAC6_entries
 };
@@ -192,6 +203,15 @@ struct firmimg_header read_header(FILE* fp)
 	fread(crc32_buf, sizeof(Bytef), sizeof(crc32_buf), fp);
 	header.idrac_version = *((uint32_t*)crc32_buf);
 
+	unsigned char fw_version[4];
+	fseek(fp, 8, SEEK_SET);
+	fread(fw_version, sizeof(unsigned char), 2, fp);
+
+	fseek(fp, 28, SEEK_SET);
+	fread(fw_version + 2, sizeof(unsigned char), 2, fp);
+
+	sprintf(header.fw_version, "%d.%d.%d.%d\n", fw_version[0], fw_version[1], fw_version[2], fw_version[3]);
+
 	fseek(fp, 52, SEEK_SET);
 
 	fread(crc32_buf, sizeof(Bytef), sizeof(crc32_buf), fp);
@@ -204,6 +224,11 @@ void unpack(char* file_path)
 {
 
 	FILE* firmimg_fp = fopen(file_path, "r");
+	if(firmimg_fp == NULL)
+	{
+		perror("Failed to open");
+		return;
+	}
 
 	const struct firmimg_header firmimg_header = read_header(firmimg_fp);
 
@@ -220,12 +245,10 @@ void unpack(char* file_path)
 			break;
 	}
 
-	printf("iDrac version : %s\n", (firmimg_header.idrac_version == IDRAC6 ? "6" : "Unknown"));
+	printf("Integrated Dell Remote Access Controller version : %s\n", (firmimg_header.idrac_version == IDRAC6 ? "6" : "Unknown"));
+	printf("Firmware version : %s", firmimg_header.fw_version);
 	printf("Header CRC32 : %x\n", (unsigned int)firmimg_header.header_crc32);
 	printf("cramfs CRC32 : %x\n", (unsigned int)firmimg_header.cramfs_crc32);
-
-	char crc32_test[4] = {0x38, 0x2E, 0x02, 0x00};
-	printf("%f\n", *((float*)crc32_test));
 
 	struct stat st;
 	if(stat("data", &st) != 0)
@@ -281,15 +304,45 @@ void help()
 
 int main(int argc, char **argv)
 {
-	if(argc != 2)
+	if(argc <= 1)
 		goto unknown_command;
 
 	if(strcmp(argv[1], "unpack") == 0)
-		unpack("firmimg.d6");
+	{
+		if(argc >= 3)
+			unpack(argv[2]);
+		else
+		{
+			errno = EINVAL;
+			fprintf(stderr, "File path no set !\n");
+
+			return -EINVAL;
+		}
+	}
 	else if(strcmp(argv[1], "pack") == 0)
-		pack();
+	{
+		if(argc >= 3)
+			pack(argv[2]);
+		else
+		{
+			errno = EINVAL;
+			fprintf(stderr, "File path no set !\n");
+
+			return -EINVAL;
+		}
+	}
 	else if(strcmp(argv[1], "verify") == 0)
-		verify("firmimg.d6");
+	{
+		if(argc >= 3)
+			verify(argv[2]);
+		else
+		{
+			errno = EINVAL;
+			fprintf(stderr, "File path not set !\n");
+
+			return -EINVAL;
+		}
+	}
 	else if(strcmp(argv[1], "help") == 0)
 		help();
 	else
