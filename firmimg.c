@@ -285,7 +285,12 @@ void unpack(char* file_path)
 		fclose(firmimg_fp);
 }
 
-void pack()
+void pack(char* file_path)
+{
+
+}
+
+void info(char* file_path)
 {
 
 }
@@ -298,6 +303,7 @@ void help()
 		"\tunpack\t\tUnpack frimware image\n" \
 		"\tpack\t\tPack firmware image\n" \
 		"\tverify\t\tVerify firmware image\n" \
+		"\tinfo\t\tGet info of firmware image\n" \
 		"\thelp\t\tShow help\n"
 	);
 }
@@ -335,6 +341,18 @@ int main(int argc, char **argv)
 	{
 		if(argc >= 3)
 			verify(argv[2]);
+		else
+		{
+			errno = EINVAL;
+			fprintf(stderr, "File path not set !\n");
+
+			return -EINVAL;
+		}
+	}
+	else if(strcmp(argv[1], "info") == 0)
+	{
+		if(argc >= 3)
+			info(argv[2]);
 		else
 		{
 			errno = EINVAL;
