@@ -44,31 +44,31 @@ iDrac 7 1.66.65 A00
 0000:0048 | 00 30 07 00  FB 57 49 B0  00 00 00 00  00 00 00 00  00 00 00 00  00 00 00 00 | .0..ûWI°................
 */
 
-struct firmimg_entry
+typedef struct firmimg_entry
 {
 	char* name;
 	char* file_name;
 	size_t offset;
 	size_t reserved;
 	size_t size;
-};
+} firmimg_entry;
 
-struct firmimg
+typedef struct firmimg
 {
 	int fw_type;
 	uint32_t idrac_version;
 	int num_entries;
 	const struct firmimg_entry* entries;
-};
+} firmimg;
 
-struct firmimg_header
+typedef struct firmimg_header
 {
 	uint32_t header_crc32;
 	uint32_t idrac_version;
 	char fw_version[255];
 	uint8_t fw_build;
 	uint32_t cramfs_crc32;
-};
+} firmimg_header;
 
 const struct firmimg_entry iDRAC6_entries[4] = {
 	{
@@ -101,11 +101,56 @@ const struct firmimg_entry iDRAC6_entries[4] = {
 	}
 };
 
+const struct firmimg_entry iDRAC7_entries[5] = {
+	{
+		.name = "header",
+		.file_name = "header.bin",
+		.offset = 4,
+		.reserved = 508,
+		.size = 508
+	},
+	{
+		.name = "uImage",
+		.file_name = "uImage",
+		.offset = 512,
+		.reserved = 2545152,
+		.size = 4479904
+	},
+	{
+		.name = "squashfs",
+		.file_name = "squashfs_1",
+		.offset = 512 + 2545152,
+		.reserved = 0, // ???
+		.size = 59685596
+	},
+	{
+		.name = "squashfs",
+		.file_name = "squashfs_2",
+		.offset = 62593024,
+		.reserved = 471040,
+		.size = 468759
+	},
+	{
+		.name = "PGP-signature",
+		.file_name = "firmimg.gpg",
+		.offset = 62593024,
+		.reserved = 230,
+		.size = 230
+	}
+};
+
 const struct firmimg iDRAC6_schema = {
 	.fw_type = IDRAC,
 	.idrac_version = IDRAC6,
 	.num_entries = 4,
 	.entries = iDRAC6_entries
+};
+
+const struct firmimg iDRAC7_schema = {
+	.fw_type = IDRAC,
+	.idrac_version = IDRAC7,
+	.num_entries = 5,
+	.entries = iDRAC7_entries
 };
 
 uint32_t fcrc32(FILE* fp, size_t offset, size_t count)
@@ -191,36 +236,61 @@ void verify(const char* file_path)
 	fclose(firmimg_fp);
 }
 
-struct firmimg_header read_header(FILE* fp)
+const struct firmimg_header* read_header(FILE* fp)
 {
-	struct firmimg_header header = {};
-
 	rewind(fp);
+
+	struct firmimg_header* header = (firmimg_header*)malloc(5 * sizeof(firmimg_header));
 
 	Bytef crc32_buf[4];
 	fread(crc32_buf, sizeof(Bytef), sizeof(crc32_buf), fp);
-	header.header_crc32 = *((uint32_t*)crc32_buf);
+	header->header_crc32 = *((uint32_t*)crc32_buf);
 
 	fread(crc32_buf, sizeof(Bytef), sizeof(crc32_buf), fp);
-	header.idrac_version = *((uint32_t*)crc32_buf);
+	header->idrac_version = *((uint32_t*)crc32_buf);
 
 	unsigned char fw_version[4];
 	fseek(fp, 8, SEEK_SET);
 	fread(fw_version, sizeof(unsigned char), 2, fp);
 
-	header.fw_build = fgetc(fp);
+	header->fw_build = fgetc(fp);
 
 	fseek(fp, 28, SEEK_SET);
 	fread(fw_version + 2, sizeof(unsigned char), 2, fp);
 
-	sprintf(header.fw_version, "%d.%d.%d.%d", fw_version[0], fw_version[1], fw_version[2], fw_version[3]);
+	sprintf(header->fw_version, "%d.%d.%d.%d", fw_version[0], fw_version[1], fw_version[2], fw_version[3]);
 
 	fseek(fp, 52, SEEK_SET);
 
 	fread(crc32_buf, sizeof(Bytef), sizeof(crc32_buf), fp);
-	header.cramfs_crc32 = *((uint32_t*)crc32_buf);
+	header->cramfs_crc32 = *((uint32_t*)crc32_buf);
 
 	return header;
+}
+
+const struct firmimg* get_schema(const struct firmimg_header* fw_header)
+{
+	switch(fw_header->idrac_version)
+	{
+		case IDRAC6:
+			return &iDRAC6_schema;
+		case IDRAC7:
+			return &iDRAC7_schema;
+		default:
+			return NULL;
+	};
+}
+
+void show_firmimg_details(const struct firmimg_header* header)
+{
+	printf("Integrated Dell Remote Access Controller version : %s\n",
+		(header->idrac_version == IDRAC6 ? "6" :
+			(IDRAC7 ? "7 or 8" : "Unknown")));
+	printf("Firmware version : %s (Build %d)\n", header->fw_version, header->fw_build);
+	printf("Header information :\n");
+	printf("Header CRC32 : %x\n", (unsigned int)header->header_crc32);
+	printf("cramfs CRC32 : %x\n", (unsigned int)header->cramfs_crc32);
+	printf("\n");
 }
 
 void unpack(char* file_path)
@@ -229,31 +299,27 @@ void unpack(char* file_path)
 	FILE* firmimg_fp = fopen(file_path, "r");
 	if(firmimg_fp == NULL)
 	{
-		perror("Failed to open");
+		perror("Failed to open firmware image");
 		return;
 	}
 
-	const struct firmimg_header firmimg_header = read_header(firmimg_fp);
-
-	const struct firmimg* firmimg_schema;
-	switch(firmimg_header.idrac_version)
+	const struct firmimg_header* firmimg_header = read_header(firmimg_fp);
+	if(firmimg_header == NULL)
 	{
-		case IDRAC6:
-			firmimg_schema = &iDRAC6_schema;
-			break;
-		default:
-			errno = ENODATA;
-			perror("No schema found");
-			goto unpack_close;
-			break;
+		errno = ENODATA;
+		perror("Failed to read header");
+		goto close;
 	}
 
-	printf("Integrated Dell Remote Access Controller version : %s\n",
-		(firmimg_header.idrac_version == IDRAC6 ? "6" :
-			(IDRAC7 ? "7 or 8" : "Unknown")));
-	printf("Firmware version : %s (Build %d)\n", firmimg_header.fw_version, firmimg_header.fw_build);
-	printf("Header CRC32 : %x\n", (unsigned int)firmimg_header.header_crc32);
-	printf("cramfs CRC32 : %x\n", (unsigned int)firmimg_header.cramfs_crc32);
+	const struct firmimg* firmimg_schema = get_schema(firmimg_header);
+	if(firmimg_schema == NULL)
+	{
+		errno = ENODATA;
+		perror("No schema found");
+		goto close;
+	}
+
+	show_firmimg_details(firmimg_header);
 
 	struct stat st;
 	if(stat("data", &st) != 0)
@@ -288,18 +354,74 @@ void unpack(char* file_path)
 
 	printf("Test CRC32 : %x\n", fcrc32(firmimg_fp, 512, 4480000));
 
-	unpack_close:
+	close:
+		if(firmimg_header)
+			free((struct firmimg_header*)firmimg_header);
 		fclose(firmimg_fp);
 }
 
 void pack(char* file_path)
 {
+	FILE* firmimg_fp = fopen(file_path, "w");
+	if(firmimg_fp == NULL)
+	{
+		perror("Failed to open firmware image");
+		return;
+	}
 
+	const struct firmimg_header* firmimg_header = read_header(firmimg_fp);
+	if(firmimg_header == NULL)
+	{
+		errno = ENODATA;
+		perror("Failed to read header");
+		goto close;
+	}
+
+	const struct firmimg* firmimg_schema = get_schema(firmimg_header);
+	if(firmimg_schema == NULL)
+	{
+		errno = ENODATA;
+		perror("No schema found");
+		goto close;
+	}
+
+	close:
+		if(firmimg_header)
+			free((struct firmimg_header*)firmimg_header);
+		fclose(firmimg_fp);
 }
 
 void info(char* file_path)
 {
+	FILE* firmimg_fp = fopen(file_path, "r");
+	if(firmimg_fp == NULL)
+	{
+		perror("Failed to open firmware image");
+		return;
+	}
 
+	const struct firmimg_header* firmimg_header = read_header(firmimg_fp);
+	if(firmimg_header == NULL)
+	{
+		errno = ENODATA;
+		perror("Failed to read header");
+		goto close;
+	}
+
+	const struct firmimg* firmimg_schema = get_schema(firmimg_header);
+	if(firmimg_schema == NULL)
+	{
+		errno = ENODATA;
+		perror("No schema found");
+		goto close;
+	}
+
+	show_firmimg_details(firmimg_header);
+
+	close:
+		if(firmimg_header)
+			free((struct firmimg_header*)firmimg_header);
+		fclose(firmimg_fp);
 }
 
 void help()
