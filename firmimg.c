@@ -238,6 +238,11 @@ void verify(const char* file_path)
 
 const struct firmimg_header* read_header(FILE* fp)
 {
+	fseek(fp, 0, SEEK_END);
+	unsigned int file_size = ftell(fp);
+	if(file_size >= 512)
+		return NULL;
+
 	rewind(fp);
 
 	struct firmimg_header* header = (firmimg_header*)malloc(5 * sizeof(firmimg_header));
