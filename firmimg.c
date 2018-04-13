@@ -200,9 +200,6 @@ void fcopy(FILE* src_fp, size_t offset, size_t count, FILE* dst_fp)
 
 		count_left -= sizeof(buf);
 	}
-
-	rewind(src_fp);
-	rewind(dst_fp);
 }
 
 void verify(const char* file_path)
@@ -240,7 +237,7 @@ const struct firmimg_header* read_header(FILE* fp)
 {
 	fseek(fp, 0, SEEK_END);
 	unsigned int file_size = ftell(fp);
-	if(file_size >= 512)
+	if(file_size < 512)
 		return NULL;
 
 	rewind(fp);
