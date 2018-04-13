@@ -18,6 +18,11 @@
 #define IDRAC7 0x040101
 #define IDRAC8 #IDRAC7
 
+#define IDENTIFIER_IDRAC6 "d6"
+#define IDENTIFIER_IDRAC7 "d7"
+#define IDENTIFIER_IDRAC8 "d8"
+#define IDENTIFIER_IDRAC9 "d9"
+
 /*
 iDrac 6 1.85 A00
 
@@ -270,17 +275,14 @@ const struct firmimg_header* read_header(FILE* fp)
 	return header;
 }
 
-const struct firmimg* get_schema(const struct firmimg_header* fw_header)
+const struct firmimg* get_schema(const char* ext)
 {
-	switch(fw_header->idrac_version)
-	{
-		case IDRAC6:
-			return &iDRAC6_schema;
-		case IDRAC7:
-			return &iDRAC7_schema;
-		default:
-			return NULL;
-	};
+	if(strcmp(ext, IDENTIFIER_IDRAC6) == 0)
+		return &iDRAC6_schema;
+	else if(strcmp(ext, IDENTIFIER_IDRAC7) == 0)
+		return &iDRAC7_schema;
+	else
+		return NULL;
 }
 
 void show_firmimg_details(const struct firmimg_header* header)
@@ -297,6 +299,8 @@ void show_firmimg_details(const struct firmimg_header* header)
 
 void unpack(char* file_path)
 {
+	char* file_name = strtok(file_path, "/");
+	char* file_ext = strrchr(file_name, '.') + 1;
 
 	FILE* firmimg_fp = fopen(file_path, "r");
 	if(firmimg_fp == NULL)
@@ -313,7 +317,7 @@ void unpack(char* file_path)
 		goto close;
 	}
 
-	const struct firmimg* firmimg_schema = get_schema(firmimg_header);
+	const struct firmimg* firmimg_schema = get_schema(file_ext);
 	if(firmimg_schema == NULL)
 	{
 		errno = ENODATA;
@@ -364,6 +368,9 @@ void unpack(char* file_path)
 
 void pack(char* file_path)
 {
+	char* file_name = strtok(file_path, "/");
+        char* file_ext = strrchr(file_name, '.') + 1;
+
 	FILE* firmimg_fp = fopen(file_path, "w");
 	if(firmimg_fp == NULL)
 	{
@@ -379,7 +386,7 @@ void pack(char* file_path)
 		goto close;
 	}
 
-	const struct firmimg* firmimg_schema = get_schema(firmimg_header);
+	const struct firmimg* firmimg_schema = get_schema(file_ext);
 	if(firmimg_schema == NULL)
 	{
 		errno = ENODATA;
@@ -395,6 +402,30 @@ void pack(char* file_path)
 
 void info(char* file_path)
 {
+	char* file_name = strtok(file_path, "/");
+        char* file_ext = strrchr(file_name, '.') + 1;
+
+	if(strcmp(file_ext, IDENTIFIER_IDRAC6) == 0)
+	{
+		printf("iDRAC6 file detected !\n");
+	}
+	else if(strcmp(file_ext, IDENTIFIER_IDRAC7) == 0)
+	{
+		printf("iDRAC7 file detected !\n");
+	}
+	else if(strcmp(file_ext, IDENTIFIER_IDRAC8) == 0)
+	{
+		printf("iDRAC8 file detected !\n");
+	}
+	else if(strcmp(file_ext, IDENTIFIER_IDRAC9) == 0)
+	{
+		printf("iDRAC9 file detected !\n");
+	}
+	else
+	{
+		printf("Unknown file extension\n");
+	}
+
 	FILE* firmimg_fp = fopen(file_path, "r");
 	if(firmimg_fp == NULL)
 	{
@@ -410,7 +441,7 @@ void info(char* file_path)
 		goto close;
 	}
 
-	const struct firmimg* firmimg_schema = get_schema(firmimg_header);
+	const struct firmimg* firmimg_schema = get_schema(file_ext);
 	if(firmimg_schema == NULL)
 	{
 		errno = ENODATA;
