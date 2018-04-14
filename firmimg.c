@@ -94,13 +94,13 @@ const struct firmimg_entry iDRAC6_entries[4] = {
 		.name = "cramfs",
 		.file_name = "cramfs",
 		.offset = 512 + 4480000,
-		.reserved = 52203520,
-		.size = 52203520
+		.reserved = 52019200,
+		.size = 52019200
 	},
 	{
 		.name = "unknown",
 		.file_name = "unknown.bin",
-		.offset = 512 + 4480000 + 52203520,
+		.offset = 512 + 4480000 + 52019200,
 		.reserved = 142904,
 		.size = 142904
 	}
@@ -207,37 +207,6 @@ void fcopy(FILE* src_fp, size_t offset, size_t count, FILE* dst_fp)
 	}
 }
 
-void verify(const char* file_path)
-{
-	FILE* firmimg_fp = fopen(file_path, "r");
-
-	printf("------------------------------------------------------------");
-	/*printf("Firmware image name : Dell %s %d %s Release %.2f\n",
-		(firmware_image->sys_type == BMC ? "BMC" :
-			(firmware_image->sys_type == DRAC ? "DRAC" :
-				(firmware_image->sys_type == IDRAC ? "iDRAC" : "Unknown"))),
-		firmware_image->sys_version,
-		(firmware_image->hw_type == MODULAR ? "Modular" :
-			(firmware_image->hw_type == MONOLITHIC ? "Monolithic" : "Unknown")),
-		firmware_image->sys_release);*/
-	printf("------------------------------------------------------------");
-	/*printf("CRC32 checksum : %x\n", firmware_image->file_crc32);
-	printf("File size : %lu bytes\n", firmware_image->file_size);
-	printf("Content data :\n");
-
-	for(int i = 0; i < firmware_image->content_length; i++)
-	{
-		struct firmimg_data data = firmware_image->content[i];
-		printf("%s:\n", data.name);
-		printf("\tOffset : %zu\n", data.offset);
-		printf("\tReserved : %zu\n", data.reserved);
-		printf("\tSize : %zu\n", data.size);
-	}*/
-	printf("------------------------------------------------------------");
-
-	fclose(firmimg_fp);
-}
-
 const struct firmimg_header* read_header(FILE* fp)
 {
 	fseek(fp, 0, SEEK_END);
@@ -278,11 +247,30 @@ const struct firmimg_header* read_header(FILE* fp)
 const struct firmimg* get_schema(const char* ext)
 {
 	if(strcmp(ext, IDENTIFIER_IDRAC6) == 0)
+	{
+		printf("iDRAC6 file detected !\n");
 		return &iDRAC6_schema;
+	}
 	else if(strcmp(ext, IDENTIFIER_IDRAC7) == 0)
+	{
+		printf("iDRAC7 file detected !\n");
 		return &iDRAC7_schema;
-	else
+	}
+	else if(strcmp(ext, IDENTIFIER_IDRAC8) == 0)
+	{
+		printf("iDRAC8 file detected !\n");
 		return NULL;
+	}
+	else if(strcmp(ext, IDENTIFIER_IDRAC9) == 0)
+	{
+		printf("iDRAC9 file detected !\n");
+		return NULL;
+	}
+	else
+	{
+		printf("Unknown file extension\n");
+		return NULL;
+	}
 }
 
 void show_firmimg_details(const struct firmimg_header* header)
@@ -294,13 +282,12 @@ void show_firmimg_details(const struct firmimg_header* header)
 	printf("Header information :\n");
 	printf("Header CRC32 : %x\n", (unsigned int)header->header_crc32);
 	printf("cramfs CRC32 : %x\n", (unsigned int)header->cramfs_crc32);
-	printf("\n");
 }
 
-void unpack(char* file_path)
+void verify(const char* file_path)
 {
-	char* file_name = strtok(file_path, "/");
-	char* file_ext = strrchr(file_name, '.') + 1;
+	const char* file_name = strtok((char*)file_path, "/");
+	const char* file_ext = strrchr(file_name, '.') + 1;
 
 	FILE* firmimg_fp = fopen(file_path, "r");
 	if(firmimg_fp == NULL)
@@ -326,6 +313,52 @@ void unpack(char* file_path)
 	}
 
 	show_firmimg_details(firmimg_header);
+	printf("\n");
+
+	for(int i = 0; i < firmimg_schema->num_entries; i++)
+	{
+		const struct firmimg_entry entry = firmimg_schema->entries[i];
+		const uint32_t entry_crc32 = fcrc32(firmimg_fp, entry.offset, entry.reserved);
+
+		printf("Verify %s : %s\n", entry.name,
+			((strcmp(entry.name, "header") == 0) ? ((entry_crc32 == firmimg_header->header_crc32) ? "OK" : "INVALID") :
+			(((strcmp(entry.name, "cramfs") == 0) ? ((entry_crc32 == firmimg_header->cramfs_crc32) ? "OK" : "INVALID") : "UNKNOWN"))));
+	}
+
+	close:
+		fclose(firmimg_fp);
+}
+
+void unpack(const char* file_path)
+{
+	const char* file_name = strtok((char*)file_path, "/");
+	const char* file_ext = strrchr(file_name, '.') + 1;
+
+	FILE* firmimg_fp = fopen(file_path, "r");
+	if(firmimg_fp == NULL)
+	{
+		perror("Failed to open firmware image");
+		return;
+	}
+
+	const struct firmimg_header* firmimg_header = read_header(firmimg_fp);
+	if(firmimg_header == NULL)
+	{
+		errno = ENODATA;
+		perror("Failed to read header");
+		goto close;
+	}
+
+	const struct firmimg* firmimg_schema = get_schema(file_ext);
+	if(firmimg_schema == NULL)
+	{
+		errno = ENODATA;
+		perror("No schema found");
+		goto close;
+	}
+
+	show_firmimg_details(firmimg_header);
+	printf("\n");
 
 	struct stat st;
 	if(stat("data", &st) != 0)
@@ -366,10 +399,10 @@ void unpack(char* file_path)
 		fclose(firmimg_fp);
 }
 
-void pack(char* file_path)
+void pack(const char* file_path)
 {
-	char* file_name = strtok(file_path, "/");
-        char* file_ext = strrchr(file_name, '.') + 1;
+	const char* file_name = strtok((char*)file_path, "/");
+	const char* file_ext = strrchr(file_name, '.') + 1;
 
 	FILE* firmimg_fp = fopen(file_path, "w");
 	if(firmimg_fp == NULL)
@@ -402,29 +435,8 @@ void pack(char* file_path)
 
 void info(char* file_path)
 {
-	char* file_name = strtok(file_path, "/");
-        char* file_ext = strrchr(file_name, '.') + 1;
-
-	if(strcmp(file_ext, IDENTIFIER_IDRAC6) == 0)
-	{
-		printf("iDRAC6 file detected !\n");
-	}
-	else if(strcmp(file_ext, IDENTIFIER_IDRAC7) == 0)
-	{
-		printf("iDRAC7 file detected !\n");
-	}
-	else if(strcmp(file_ext, IDENTIFIER_IDRAC8) == 0)
-	{
-		printf("iDRAC8 file detected !\n");
-	}
-	else if(strcmp(file_ext, IDENTIFIER_IDRAC9) == 0)
-	{
-		printf("iDRAC9 file detected !\n");
-	}
-	else
-	{
-		printf("Unknown file extension\n");
-	}
+	const char* file_name = strtok((char*)file_path, "/");
+	const char* file_ext = strrchr(file_name, '.') + 1;
 
 	FILE* firmimg_fp = fopen(file_path, "r");
 	if(firmimg_fp == NULL)

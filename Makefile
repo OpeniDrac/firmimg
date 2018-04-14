@@ -16,7 +16,10 @@ all: $(PROGS)
 cramfs:
 	$(MAKE) -C ${PWD}/cramfs
 
-pack: all
+verify: all
+	@${PWD}/firmimg verify firmimg.d6
+
+pack: all cramfs
 	@${PWD}/firmimg pack firmimg.d6
 
 unpack: all cramfs
