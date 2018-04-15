@@ -17,19 +17,16 @@ cramfs:
 	$(MAKE) -C ${PWD}/cramfs
 
 verify: all
-	@${PWD}/firmimg verify firmimg.d6
+	@${PWD}/firmimg verify $(FILE)
 
 pack: all cramfs
-	@${PWD}/firmimg pack firmimg.d6
+	@${PWD}/firmimg pack $(FILE)
 
 unpack: all cramfs
-	@${PWD}/firmimg unpack firmimg.d6
+	@${PWD}/firmimg unpack $(FILE)
 	sudo rm -Rf $(IDRACFS_DIR)
 	sudo $(CRAMFSCK) -x $(IDRACFS_DIR) $(DATA_DIR)/cramfs
 	@echo "Firmware is unpacked !"
-
-info: all
-	@${PWD}/firmimg info firmimg.d6
 
 help:
 	@echo "make [COMMAND]"
@@ -39,7 +36,6 @@ help:
 	@echo "	clean		Clean firmimg program"
 	@echo "	pack		Pack cramfs of firmware image"
 	@echo "	unpack		Unpack cramfs of firmware image"
-	@echo "	info 		Show information of firmware image"
 	@echo "	help		Show help"
 
 distclean clean:

@@ -1,170 +1,4 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <errno.h>
-#include <string.h>
-#include <sys/stat.h>
-#include <linux/limits.h>
-#include <stdint.h>
-#include <zlib.h>
-#include <math.h>
-
-#define DEFAULT_BUFFER 1024
-
-#define BMC 0
-#define DRAC 1
-#define IDRAC 2
-
-#define IDRAC6 0x030101
-#define IDRAC7 0x040101
-#define IDRAC8 #IDRAC7
-
-#define IDENTIFIER_IDRAC6 "d6"
-#define IDENTIFIER_IDRAC7 "d7"
-#define IDENTIFIER_IDRAC8 "d8"
-#define IDENTIFIER_IDRAC9 "d9"
-
-/*
-iDrac 6 1.85 A00
-
-          |Header CRC32--iDrac ver. --Ver. & Rel.--Unknown    --Unknown    --Unknown     |
-0000:0000 | C9 D4 D9 42  01 01 03 00  01 55 03 00  00 8E 47 03  01 02 00 00  01 13 07 00 | ÉÔÙB.....U....G.........
-0000:0018 | 57 48 4F 56  00 00 00 00  00 02 00 00  E0 5B 44 00  F6 3F 64 32  00 5E 44 00 | WHOV........à[D.ö?d2.^D.
-0000:0030 | 00 00 01 03  F2 AB 8C 87  00 5E 45 03  38 2E 02 00  55 8A 1A 65  00 00 00 00 | ....ò«...^E.8...U..e....
-*/
-
-/*
-iDrac 6 2.85 A00
-
-0000:0000 | 56 EA 53 65  01 01 03 00  02 55 04 00  00 4E 60 03  01 02 00 00  01 13 08 00 | VêSe.....U...N`.........
-0000:0018 | 57 48 4F 56  00 00 00 00  00 02 00 00  E0 5B 44 00  AA D1 58 2A  00 5E 44 00 | WHOV........à[D.ªÑX*.^D.
-0000:0030 | 00 C0 19 03  02 75 A0 F4  00 1E 5E 03  38 2E 02 00  6C BB 00 32  00 00 00 00 | .À...u ô..^.8...l».2....
-*/
-
-/*
-iDrac 7 1.66.65 A00
-
-0000:0000 | CF B3 72 FB  01 01 04 00  01 42 07 00  00 48 C2 03  89 08 00 00  00 00 03 00 | Ï³rû.....B...HÂ.........
-0000:0018 | 44 44 52 42  41 00 00 00  00 02 00 00  D5 D5 26 00  2B 6B C8 08  00 D8 26 00 | DDRBA.......ÕÕ&.+kÈ..Ø&.
-0000:0030 | 00 C0 8E 03  B0 73 0E 0B  00 98 B5 03  F4 7F 05 00  02 2C 8A AF  00 18 BB 03 | .À..°s....µ.ô....,.¯..».
-0000:0048 | 00 30 07 00  FB 57 49 B0  00 00 00 00  00 00 00 00  00 00 00 00  00 00 00 00 | .0..ûWI°................
-*/
-
-typedef struct firmimg_entry
-{
-	char* name;
-	char* file_name;
-	size_t offset;
-	size_t reserved;
-	size_t size;
-} firmimg_entry;
-
-typedef struct firmimg
-{
-	int fw_type;
-	uint32_t idrac_version;
-	int num_entries;
-	const struct firmimg_entry* entries;
-} firmimg;
-
-typedef struct firmimg_header
-{
-	uint32_t header_crc32;
-	uint32_t idrac_version;
-	char fw_version[255];
-	uint8_t fw_build;
-	uint32_t uimage_offset;
-	uint32_t uimage_size;
-	uint32_t uimage_crc32;
-	uint32_t cramfs_offset;
-	uint32_t cramfs_size;
-	uint32_t cramfs_crc32;
-	uint32_t unknown_offset;
-	uint32_t unknown_size;
-	uint32_t unknown_crc32;
-} firmimg_header;
-
-const struct firmimg_entry iDRAC6_entries[4] = {
-	{
-		.name = "header",
-		.file_name = "header.bin",
-		.offset = 4,
-		.reserved = 508,
-		.size = 508
-	},
-	{
-		.name = "uImage",
-		.file_name = "uImage",
-		.offset = 512,
-		.reserved = 4480000,
-		.size = 4479904
-	},
-	{
-		.name = "cramfs",
-		.file_name = "cramfs",
-		.offset = 512 + 4480000,
-		.reserved = 52019200,
-		.size = 52019200
-	},
-	{
-		.name = "unknown",
-		.file_name = "unknown.bin",
-		.offset = 512 + 4480000 + 52019200,
-		.reserved = 142904,
-		.size = 142904
-	}
-};
-
-const struct firmimg_entry iDRAC7_entries[5] = {
-	{
-		.name = "header",
-		.file_name = "header.bin",
-		.offset = 4,
-		.reserved = 508,
-		.size = 508
-	},
-	{
-		.name = "uImage",
-		.file_name = "uImage",
-		.offset = 512,
-		.reserved = 2545152,
-		.size = 4479904
-	},
-	{
-		.name = "squashfs",
-		.file_name = "squashfs_1",
-		.offset = 512 + 2545152,
-		.reserved = 0, // ???
-		.size = 59685596
-	},
-	{
-		.name = "squashfs",
-		.file_name = "squashfs_2",
-		.offset = 62593024,
-		.reserved = 471040,
-		.size = 468759
-	},
-	{
-		.name = "PGP-signature",
-		.file_name = "firmimg.gpg",
-		.offset = 62593024,
-		.reserved = 230,
-		.size = 230
-	}
-};
-
-const struct firmimg iDRAC6_schema = {
-	.fw_type = IDRAC,
-	.idrac_version = IDRAC6,
-	.num_entries = 4,
-	.entries = iDRAC6_entries
-};
-
-const struct firmimg iDRAC7_schema = {
-	.fw_type = IDRAC,
-	.idrac_version = IDRAC7,
-	.num_entries = 5,
-	.entries = iDRAC7_entries
-};
+#include "firmimg.h"
 
 uint32_t fcrc32(FILE* fp, size_t offset, size_t count)
 {
@@ -215,188 +49,220 @@ void fcopy(FILE* src_fp, size_t offset, size_t count, FILE* dst_fp)
 	}
 }
 
-const struct firmimg_header* read_header(FILE* fp)
+int get_drac_family(const char* path)
 {
-	fseek(fp, 0, SEEK_END);
-	unsigned int file_size = ftell(fp);
-	if(file_size < 512)
-		return NULL;
+	const char* file_name = strrchr(path, '/');
+	char* file_extension = strrchr(((file_name == NULL) ? path : file_name), '.');
 
-	rewind(fp);
+	if(file_extension == NULL)
+		return -1;
 
-	struct firmimg_header* header = (firmimg_header*)malloc(5 * sizeof(firmimg_header));
+	file_extension++;
 
-	Bytef uint32_buf[4];
-	fread(uint32_buf, sizeof(Bytef), sizeof(uint32_buf), fp);
-	header->header_crc32 = *((uint32_t*)uint32_buf);
+	if(strcmp(file_extension, IDRAC6_EXTENSION) == 0)
+		return IDRAC6;
+	else if(strcmp(file_extension, IDRAC7_EXTENSION) == 0)
+		return IDRAC7;
+	else if(strcmp(file_extension, IDRAC8_EXTENSION) == 0)
+		return IDRAC8;
+	else if(strcmp(file_extension, IDRAC9_EXTENSION) == 0)
+	{
+		printf("Warning : iDRAC9 is uImage !");
+		return IDRAC9;
+	}
 
-	fread(uint32_buf, sizeof(Bytef), sizeof(uint32_buf), fp);
-	header->idrac_version = *((uint32_t*)uint32_buf);
+	printf("Warning: Unknown extension !\n");
 
-	unsigned char fw_version[4];
-	fseek(fp, 8, SEEK_SET);
-	fread(fw_version, sizeof(unsigned char), 2, fp);
-
-	header->fw_build = fgetc(fp);
-
-	fseek(fp, 30, SEEK_SET);
-	fread(fw_version + 2, sizeof(unsigned char), 2, fp);
-
-	sprintf(header->fw_version, "%d.%d.%d.%d", fw_version[0], fw_version[1], fw_version[2], fw_version[3]);
-
-	fread(uint32_buf, sizeof(Bytef), sizeof(uint32_buf), fp);
-	header->uimage_offset = *((uint32_t*)uint32_buf);
-
-	fread(uint32_buf, sizeof(Bytef), sizeof(uint32_buf), fp);
-	header->uimage_size = *((uint32_t*)uint32_buf);
-
-	fread(uint32_buf, sizeof(Bytef), sizeof(uint32_buf), fp);
-	header->uimage_crc32 = *((uint32_t*)uint32_buf);
-
-	fread(uint32_buf, sizeof(Bytef), sizeof(uint32_buf), fp);
-	header->cramfs_offset = *((uint32_t*)uint32_buf);
-
-	fread(uint32_buf, sizeof(Bytef), sizeof(uint32_buf), fp);
-	header->cramfs_size = *((uint32_t*)uint32_buf);
-
-	fread(uint32_buf, sizeof(Bytef), sizeof(uint32_buf), fp);
-	header->cramfs_crc32 = *((uint32_t*)uint32_buf);
-
-	fread(uint32_buf, sizeof(Bytef), sizeof(uint32_buf), fp);
-	header->unknown_offset = *((uint32_t*)uint32_buf);
-
-	fread(uint32_buf, sizeof(Bytef), sizeof(uint32_buf), fp);
-	header->unknown_size = *((uint32_t*)uint32_buf);
-
-	fread(uint32_buf, sizeof(Bytef), sizeof(uint32_buf), fp);
-	header->unknown_crc32 = *((uint32_t*)uint32_buf);
-
-	return header;
+	return -1;
 }
 
-const struct firmimg* get_schema(const char* ext)
+firmimg_entry_info* get_schema(const int idrac_family)
 {
-	if(strcmp(ext, IDENTIFIER_IDRAC6) == 0)
+	switch(idrac_family)
 	{
-		printf("iDRAC6 file detected !\n");
-		return &iDRAC6_schema;
-	}
-	else if(strcmp(ext, IDENTIFIER_IDRAC7) == 0)
-	{
-		printf("iDRAC7 file detected !\n");
-		return &iDRAC7_schema;
-	}
-	else if(strcmp(ext, IDENTIFIER_IDRAC8) == 0)
-	{
-		printf("iDRAC8 file detected !\n");
-		return NULL;
-	}
-	else if(strcmp(ext, IDENTIFIER_IDRAC9) == 0)
-	{
-		printf("iDRAC9 file detected !\n");
-		return NULL;
-	}
-	else
-	{
-		printf("Unknown file extension\n");
-		return NULL;
+		case IDRAC6:
+			return iDRAC6_schema;
+		default:
+			return NULL;
 	}
 }
 
-void show_firmimg_details(const struct firmimg_header* header)
+FIRMIMG_FILE* _firmimg_open(const char* file_path, const char* mode)
 {
-	printf("Integrated Dell Remote Access Controller version : %s\n",
-		(header->idrac_version == IDRAC6 ? "6" :
-			(IDRAC7 ? "7 or 8" : "Unknown")));
-	printf("Firmware version : %s (Build %d)\n", header->fw_version, header->fw_build);
-	printf("Header information :\n");
-	printf("Header CRC32 : %x\n", (unsigned int)header->header_crc32);
-	printf("uImage offset : %d\n", header->uimage_offset);
-	printf("uImage size : %d\n", header->uimage_size);
-	printf("uImage CRC32 : %x\n", header->uimage_crc32);
-	printf("cramfs offset : %d\n", header->cramfs_offset);
-	printf("cramfs size : %d\n", header->cramfs_size);
-	printf("cramfs CRC32 : %x\n", header->cramfs_crc32);
-	printf("unknown offset : %d\n", header->unknown_offset);
-	printf("unknown size : %d\n", header->unknown_size);
-	printf("unknown CRC32 : %x\n", header->unknown_crc32);
+	FIRMIMG_FILE* firmimg_fp = malloc(sizeof(struct FIRMIMG_FILE));
+
+	firmimg_fp->fp = fopen(file_path, mode);
+	if(firmimg_fp->fp == NULL)
+	{
+		free(firmimg_fp);
+		return NULL;
+	}
+
+	firmimg_fp->firmware_image = malloc(sizeof(struct firmimg));
+	firmimg_fp->firmware_image->drac_family = get_drac_family(file_path);
+	if(firmimg_fp->firmware_image->drac_family < 0 || firmimg_fp->firmware_image->drac_family == IDRAC9)
+	{
+		firmimg_close(firmimg_fp);
+		return NULL;
+	}
+
+	if(strcmp(mode, "r") == 0)
+	{
+		fseek(firmimg_fp->fp, 0, SEEK_END);
+		unsigned int file_size = ftell(firmimg_fp->fp);
+
+		if(file_size < FIRMIMG_HEADER_SIZE)
+		{
+			printf("Incorrect header !\n");
+			firmimg_close(firmimg_fp);
+			return NULL;
+		}
+
+		rewind(firmimg_fp->fp);
+
+		unsigned char uint8_buf;
+		unsigned char uint16_buf[2];
+		unsigned char uint32_buf[4];
+
+		fread(uint32_buf, sizeof(unsigned char), sizeof(uint32_buf), firmimg_fp->fp);
+		uint32_t header_checksum = *((uint32_t*)uint32_buf);
+		uint32_t file_header_checksum = fcrc32(firmimg_fp->fp, 4, FIRMIMG_HEADER_SIZE - 4);
+	
+		if(header_checksum != file_header_checksum)
+		{
+			printf("Incorrect header checksum !\n");
+			firmimg_close(firmimg_fp);
+			return NULL;
+		}
+
+		fseek(firmimg_fp->fp, 4, SEEK_SET);
+
+		// Unknown data offset 4 and 5
+		uint8_buf = getc(firmimg_fp->fp); // 0x01
+		uint8_buf = getc(firmimg_fp->fp); // 0x01
+
+		fread(uint16_buf, sizeof(unsigned char), sizeof(uint16_buf), firmimg_fp->fp);
+		firmimg_fp->firmware_image->num_entries = *((uint16_t*)uint16_buf);
+
+		fread(uint32_buf, sizeof(unsigned char), 2, firmimg_fp->fp);
+
+		fread(uint16_buf, sizeof(unsigned char), sizeof(uint16_buf), firmimg_fp->fp);
+		firmimg_fp->firmware_image->build = *((uint16_t*)uint16_buf);
+
+		// Unknown data offset 12 - 27
+		fseek(firmimg_fp->fp, 28, SEEK_SET);
+
+		uint32_buf[2] = getc(firmimg_fp->fp);
+		uint8_buf = getc(firmimg_fp->fp); // 0x00
+		uint32_buf[3] = getc(firmimg_fp->fp);
+		uint8_buf = getc(firmimg_fp->fp); // 0x00
+
+		sprintf(firmimg_fp->firmware_image->release, "%d.%d.%d.%d", uint32_buf[0], uint32_buf[1], uint32_buf[2], uint32_buf[3]);
+
+		firmimg_fp->firmware_image->entries = malloc(firmimg_fp->firmware_image->num_entries * sizeof(firmimg_entry));
+		for(int i = 0; i < firmimg_fp->firmware_image->num_entries; i++)
+		{
+			struct firmimg_entry entry;
+
+			fread(uint32_buf, sizeof(unsigned char), sizeof(uint32_buf), firmimg_fp->fp);
+			entry.offset = *((uint32_t*)uint32_buf);
+
+			fread(uint32_buf, sizeof(unsigned char), sizeof(uint32_buf), firmimg_fp->fp);
+			entry.size = *((uint32_t*)uint32_buf);
+
+			fread(uint32_buf, sizeof(unsigned char), sizeof(uint32_buf), firmimg_fp->fp);
+			entry.checksum = *((uint32_t*)uint32_buf);
+
+			firmimg_fp->firmware_image->entries[i] = entry;
+		}
+	}
+	if(strcmp(mode, "w") == 0)
+	{
+		firmimg_fp->firmware_image->num_entries = 0;
+	}
+
+	return firmimg_fp;
 }
 
-void verify(const char* file_path)
+FIRMIMG_FILE* firmimg_open(const char* file_path)
 {
-	const char* file_name = strtok((char*)file_path, "/");
-	const char* file_ext = strrchr(file_name, '.') + 1;
+	return _firmimg_open(file_path, "r");
+}
 
-	FILE* firmimg_fp = fopen(file_path, "r");
+FIRMIMG_FILE* firmimg_create(const char* file_path)
+{
+	return _firmimg_open(file_path, "w");
+}
+
+int firmimg_close(FIRMIMG_FILE* firmimg_fp)
+{
+	int result =  fclose(firmimg_fp->fp);
+	if(firmimg_fp->firmware_image->entries)
+		free(firmimg_fp->firmware_image->entries);
+
+	free(firmimg_fp->firmware_image);
+	free(firmimg_fp);
+
+	return result;
+}
+
+void verify(int argc, char **argv)
+{
+	if(argc < 3)
+	{
+		printf("File path not set !");
+		return;
+	}
+
+	const char* file_path = argv[2];
+
+	FIRMIMG_FILE* firmimg_fp = firmimg_open(file_path);
 	if(firmimg_fp == NULL)
 	{
 		perror("Failed to open firmware image");
 		return;
 	}
 
-	const struct firmimg_header* firmimg_header = read_header(firmimg_fp);
-	if(firmimg_header == NULL)
+	printf("Dell Remote Access Controller family : %d\n", firmimg_fp->firmware_image->drac_family);
+	printf("Firmware version : %s (Build %d)\n", firmimg_fp->firmware_image->release, firmimg_fp->firmware_image->build);
+	printf("Num. entries : %d\n", firmimg_fp->firmware_image->num_entries);
+
+	firmimg_entry_info* drac_schema = get_schema(firmimg_fp->firmware_image->drac_family);
+	for(int i = 0; i < firmimg_fp->firmware_image->num_entries; i++)
 	{
-		errno = ENODATA;
-		perror("Failed to read header");
-		goto close;
+		struct firmimg_entry entry = firmimg_fp->firmware_image->entries[i];
+		uint32_t entry_checksum = fcrc32(firmimg_fp->fp, entry.offset, entry.size);
+
+		printf("Entry %d :\n", i);
+		if(drac_schema != NULL)
+		{
+			printf("\tName : %s\n", drac_schema[i].name);
+			printf("\tDescription : %s\n", drac_schema[i].description);
+		}
+		printf("\tOffset : %d\n", entry.offset);
+		printf("\tSize : %d\n", entry.size);
+		printf("\tChecksum : %x (%s)\n", entry.checksum, ((entry_checksum == entry.checksum) ? "VALID" : "INVALID"));
 	}
 
-	const struct firmimg* firmimg_schema = get_schema(file_ext);
-	if(firmimg_schema == NULL)
-	{
-		errno = ENODATA;
-		perror("No schema found");
-		goto close;
-	}
-
-	show_firmimg_details(firmimg_header);
-	printf("\n");
-
-	for(int i = 0; i < firmimg_schema->num_entries; i++)
-	{
-		const struct firmimg_entry entry = firmimg_schema->entries[i];
-		const uint32_t entry_crc32 = fcrc32(firmimg_fp, entry.offset, entry.reserved);
-
-		printf("Verify %s : %s\n", entry.name,
-			((strcmp(entry.name, "header") == 0) ? ((entry_crc32 == firmimg_header->header_crc32) ? "OK" : "INVALID") :
-			(((strcmp(entry.name, "cramfs") == 0) ? ((entry_crc32 == firmimg_header->cramfs_crc32) ? "OK" : "INVALID") : "UNKNOWN"))));
-	}
-
-	close:
-		fclose(firmimg_fp);
+	firmimg_close(firmimg_fp);
 }
 
-void unpack(const char* file_path)
+void unpack(int argc, char **argv)
 {
-	const char* file_name = strtok((char*)file_path, "/");
-	const char* file_ext = strrchr(file_name, '.') + 1;
+	if(argc < 3)
+	{
+		printf("File path not set !");
+		return;
+	}
 
-	FILE* firmimg_fp = fopen(file_path, "r");
+	const char* file_path = argv[2];
+
+	FIRMIMG_FILE* firmimg_fp = firmimg_open(file_path);
 	if(firmimg_fp == NULL)
 	{
 		perror("Failed to open firmware image");
 		return;
 	}
-
-	const struct firmimg_header* firmimg_header = read_header(firmimg_fp);
-	if(firmimg_header == NULL)
-	{
-		errno = ENODATA;
-		perror("Failed to read header");
-		goto close;
-	}
-
-	const struct firmimg* firmimg_schema = get_schema(file_ext);
-	if(firmimg_schema == NULL)
-	{
-		errno = ENODATA;
-		perror("No schema found");
-		goto close;
-	}
-
-	show_firmimg_details(firmimg_header);
-	printf("\n");
 
 	struct stat st;
 	if(stat("data", &st) != 0)
@@ -404,107 +270,82 @@ void unpack(const char* file_path)
 		mkdir("data", S_IRWXU);
 	}
 
-	char* entries_dir_path = "data/";
-	for(int i = 0; i < firmimg_schema->num_entries; i++)
+	firmimg_entry_info* drac_schema = get_schema(firmimg_fp->firmware_image->drac_family);
+	for(int i = 0; i < firmimg_fp->firmware_image->num_entries; i++)
 	{
-		const struct firmimg_entry entry = firmimg_schema->entries[i];
-		char entry_file_path[PATH_MAX] = "\0";
-		strcat(entry_file_path, entries_dir_path);
-		strcat(entry_file_path, entry.file_name);
+		struct firmimg_entry entry = firmimg_fp->firmware_image->entries[i];
+		uint32_t entry_checksum = fcrc32(firmimg_fp->fp, entry.offset, entry.size);
+
+		printf("[%d/%d] Entry checksum : %s\n", i + 1, firmimg_fp->firmware_image->num_entries, ((entry_checksum == entry.checksum) ? "VALID" : "INVALID"));
+		printf("[%d/%d] Extracting...\n", i + 1, firmimg_fp->firmware_image->num_entries);
+
+		char entry_file_path[PATH_MAX];
+		if(drac_schema == NULL)
+			sprintf(entry_file_path, "data/entry_%d.bin", i);
+		else
+			sprintf(entry_file_path, "data/%s", drac_schema[i].file_name);
 
 		FILE* entry_fp = fopen(entry_file_path, "w+");
 		if(entry_fp == NULL)
 		{
-			perror("Failed to open entry");
+			printf("[%d/%d] Extraction failed !", i + 1, firmimg_fp->firmware_image->num_entries);
+			perror("Failed to open entry file");
 			continue;
 		}
 
-		printf("[%d/%d] Unpack %s entry to %s...\n", i, firmimg_schema->num_entries, entry.name, entry.file_name);
-
-		fcopy(firmimg_fp, entry.offset, entry.reserved, entry_fp);
-
-		printf("[%d/%d] %s CRC32 : %x\n", i, firmimg_schema->num_entries, entry.name, fcrc32(entry_fp, 0, entry.reserved));
-		printf("[%d/%d] Done !\n", i, firmimg_schema->num_entries);
-
+		fcopy(firmimg_fp->fp, entry.offset, entry.size, entry_fp);
+		uint32_t entry_file_checksum = fcrc32(entry_fp, 0, entry.size);
 		fclose(entry_fp);
+
+		printf("[%d/%d] Extracted !\n", i + 1, firmimg_fp->firmware_image->num_entries);
+		printf("[%d/%d] File checksum : %s \n", i + 1, firmimg_fp->firmware_image->num_entries, ((entry_file_checksum == entry.checksum) ? "VALID" : "INVALID"));
 	}
 
-	printf("Test CRC32 : %x\n", fcrc32(firmimg_fp, 512, 4480000));
+	printf("Firmware image extracted !\n");
 
-	close:
-		if(firmimg_header)
-			free((struct firmimg_header*)firmimg_header);
-		fclose(firmimg_fp);
+	firmimg_close(firmimg_fp);
 }
 
-void pack(const char* file_path)
+void pack(int argc, char **argv)
 {
-	const char* file_name = strtok((char*)file_path, "/");
-	const char* file_ext = strrchr(file_name, '.') + 1;
+	if(argc < 3)
+	{
+		printf("File path not set !");
+		return;
+	}
 
-	FILE* firmimg_fp = fopen(file_path, "w");
+	const char* file_path = argv[2];
+
+	FIRMIMG_FILE* firmimg_fp = firmimg_create(file_path);
 	if(firmimg_fp == NULL)
 	{
 		perror("Failed to open firmware image");
 		return;
 	}
 
-	const struct firmimg_header* firmimg_header = read_header(firmimg_fp);
-	if(firmimg_header == NULL)
+	DIR* data_dir = opendir("./data/");
+	struct dirent* dir;
+	if (data_dir == NULL)
 	{
-		errno = ENODATA;
-		perror("Failed to read header");
-		goto close;
-	}
+		perror("Failed to open directory");
 
-	const struct firmimg* firmimg_schema = get_schema(file_ext);
-	if(firmimg_schema == NULL)
-	{
-		errno = ENODATA;
-		perror("No schema found");
-		goto close;
-	}
-
-	close:
-		if(firmimg_header)
-			free((struct firmimg_header*)firmimg_header);
-		fclose(firmimg_fp);
-}
-
-void info(char* file_path)
-{
-	const char* file_name = strtok((char*)file_path, "/");
-	const char* file_ext = strrchr(file_name, '.') + 1;
-
-	FILE* firmimg_fp = fopen(file_path, "r");
-	if(firmimg_fp == NULL)
-	{
-		perror("Failed to open firmware image");
+		firmimg_close(firmimg_fp);
 		return;
 	}
 
-	const struct firmimg_header* firmimg_header = read_header(firmimg_fp);
-	if(firmimg_header == NULL)
+	while ((dir = readdir(data_dir)) != NULL)
 	{
-		errno = ENODATA;
-		perror("Failed to read header");
-		goto close;
+		if(dir->d_type != DT_DIR)
+			printf("%s\n", dir->d_name);
 	}
 
-	const struct firmimg* firmimg_schema = get_schema(file_ext);
-	if(firmimg_schema == NULL)
-	{
-		errno = ENODATA;
-		perror("No schema found");
-		goto close;
-	}
+	closedir(data_dir);
 
-	show_firmimg_details(firmimg_header);
+	unsigned char header_buffer[FIRMIMG_HEADER_SIZE];
+	header_buffer[0] = 0x01;
+	header_buffer[1] = 0x01;
 
-	close:
-		if(firmimg_header)
-			free((struct firmimg_header*)firmimg_header);
-		fclose(firmimg_fp);
+	firmimg_close(firmimg_fp);
 }
 
 void help()
@@ -515,7 +356,6 @@ void help()
 		"\tunpack\t\tUnpack frimware image\n" \
 		"\tpack\t\tPack firmware image\n" \
 		"\tverify\t\tVerify firmware image\n" \
-		"\tinfo\t\tGet info of firmware image\n" \
 		"\thelp\t\tShow help\n"
 	);
 }
@@ -525,54 +365,12 @@ int main(int argc, char **argv)
 	if(argc <= 1)
 		goto unknown_command;
 
-	if(strcmp(argv[1], "unpack") == 0)
-	{
-		if(argc >= 3)
-			unpack(argv[2]);
-		else
-		{
-			errno = EINVAL;
-			fprintf(stderr, "File path no set !\n");
-
-			return -EINVAL;
-		}
-	}
+	if(strcmp(argv[1], "verify") == 0)
+		verify(argc, argv);
+	else if(strcmp(argv[1], "unpack") == 0)
+		unpack(argc, argv);
 	else if(strcmp(argv[1], "pack") == 0)
-	{
-		if(argc >= 3)
-			pack(argv[2]);
-		else
-		{
-			errno = EINVAL;
-			fprintf(stderr, "File path no set !\n");
-
-			return -EINVAL;
-		}
-	}
-	else if(strcmp(argv[1], "verify") == 0)
-	{
-		if(argc >= 3)
-			verify(argv[2]);
-		else
-		{
-			errno = EINVAL;
-			fprintf(stderr, "File path not set !\n");
-
-			return -EINVAL;
-		}
-	}
-	else if(strcmp(argv[1], "info") == 0)
-	{
-		if(argc >= 3)
-			info(argv[2]);
-		else
-		{
-			errno = EINVAL;
-			fprintf(stderr, "File path not set !\n");
-
-			return -EINVAL;
-		}
-	}
+		pack(argc, argv);
 	else if(strcmp(argv[1], "help") == 0)
 		help();
 	else
