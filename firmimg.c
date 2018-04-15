@@ -239,7 +239,7 @@ const struct firmimg_header* read_header(FILE* fp)
 
 	header->fw_build = fgetc(fp);
 
-	fseek(fp, 28, SEEK_SET);
+	fseek(fp, 30, SEEK_SET);
 	fread(fw_version + 2, sizeof(unsigned char), 2, fp);
 
 	sprintf(header->fw_version, "%d.%d.%d.%d", fw_version[0], fw_version[1], fw_version[2], fw_version[3]);
@@ -316,10 +316,10 @@ void show_firmimg_details(const struct firmimg_header* header)
 	printf("uImage CRC32 : %x\n", header->uimage_crc32);
 	printf("cramfs offset : %d\n", header->cramfs_offset);
 	printf("cramfs size : %d\n", header->cramfs_size);
-	printf("cramfs CRC32 : %x\n", (unsigned int)header->cramfs_crc32);
+	printf("cramfs CRC32 : %x\n", header->cramfs_crc32);
 	printf("unknown offset : %d\n", header->unknown_offset);
 	printf("unknown size : %d\n", header->unknown_size);
-	printf("unknown CRC32 : %x\n", (unsigned int)header->unknown_crc32);
+	printf("unknown CRC32 : %x\n", header->unknown_crc32);
 }
 
 void verify(const char* file_path)
