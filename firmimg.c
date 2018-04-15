@@ -72,7 +72,15 @@ typedef struct firmimg_header
 	uint32_t idrac_version;
 	char fw_version[255];
 	uint8_t fw_build;
+	uint32_t uimage_offset;
+	uint32_t uimage_size;
+	uint32_t uimage_crc32;
+	uint32_t cramfs_offset;
+	uint32_t cramfs_size;
 	uint32_t cramfs_crc32;
+	uint32_t unknown_offset;
+	uint32_t unknown_size;
+	uint32_t unknown_crc32;
 } firmimg_header;
 
 const struct firmimg_entry iDRAC6_entries[4] = {
@@ -218,12 +226,12 @@ const struct firmimg_header* read_header(FILE* fp)
 
 	struct firmimg_header* header = (firmimg_header*)malloc(5 * sizeof(firmimg_header));
 
-	Bytef crc32_buf[4];
-	fread(crc32_buf, sizeof(Bytef), sizeof(crc32_buf), fp);
-	header->header_crc32 = *((uint32_t*)crc32_buf);
+	Bytef uint32_buf[4];
+	fread(uint32_buf, sizeof(Bytef), sizeof(uint32_buf), fp);
+	header->header_crc32 = *((uint32_t*)uint32_buf);
 
-	fread(crc32_buf, sizeof(Bytef), sizeof(crc32_buf), fp);
-	header->idrac_version = *((uint32_t*)crc32_buf);
+	fread(uint32_buf, sizeof(Bytef), sizeof(uint32_buf), fp);
+	header->idrac_version = *((uint32_t*)uint32_buf);
 
 	unsigned char fw_version[4];
 	fseek(fp, 8, SEEK_SET);
@@ -236,10 +244,32 @@ const struct firmimg_header* read_header(FILE* fp)
 
 	sprintf(header->fw_version, "%d.%d.%d.%d", fw_version[0], fw_version[1], fw_version[2], fw_version[3]);
 
-	fseek(fp, 52, SEEK_SET);
+	fread(uint32_buf, sizeof(Bytef), sizeof(uint32_buf), fp);
+	header->uimage_offset = *((uint32_t*)uint32_buf);
 
-	fread(crc32_buf, sizeof(Bytef), sizeof(crc32_buf), fp);
-	header->cramfs_crc32 = *((uint32_t*)crc32_buf);
+	fread(uint32_buf, sizeof(Bytef), sizeof(uint32_buf), fp);
+	header->uimage_size = *((uint32_t*)uint32_buf);
+
+	fread(uint32_buf, sizeof(Bytef), sizeof(uint32_buf), fp);
+	header->uimage_crc32 = *((uint32_t*)uint32_buf);
+
+	fread(uint32_buf, sizeof(Bytef), sizeof(uint32_buf), fp);
+	header->cramfs_offset = *((uint32_t*)uint32_buf);
+
+	fread(uint32_buf, sizeof(Bytef), sizeof(uint32_buf), fp);
+	header->cramfs_size = *((uint32_t*)uint32_buf);
+
+	fread(uint32_buf, sizeof(Bytef), sizeof(uint32_buf), fp);
+	header->cramfs_crc32 = *((uint32_t*)uint32_buf);
+
+	fread(uint32_buf, sizeof(Bytef), sizeof(uint32_buf), fp);
+	header->unknown_offset = *((uint32_t*)uint32_buf);
+
+	fread(uint32_buf, sizeof(Bytef), sizeof(uint32_buf), fp);
+	header->unknown_size = *((uint32_t*)uint32_buf);
+
+	fread(uint32_buf, sizeof(Bytef), sizeof(uint32_buf), fp);
+	header->unknown_crc32 = *((uint32_t*)uint32_buf);
 
 	return header;
 }
@@ -281,7 +311,15 @@ void show_firmimg_details(const struct firmimg_header* header)
 	printf("Firmware version : %s (Build %d)\n", header->fw_version, header->fw_build);
 	printf("Header information :\n");
 	printf("Header CRC32 : %x\n", (unsigned int)header->header_crc32);
+	printf("uImage offset : %d\n", header->uimage_offset);
+	printf("uImage size : %d\n", header->uimage_size);
+	printf("uImage CRC32 : %x\n", header->uimage_crc32);
+	printf("cramfs offset : %d\n", header->cramfs_offset);
+	printf("cramfs size : %d\n", header->cramfs_size);
 	printf("cramfs CRC32 : %x\n", (unsigned int)header->cramfs_crc32);
+	printf("unknown offset : %d\n", header->unknown_offset);
+	printf("unknown size : %d\n", header->unknown_size);
+	printf("unknown CRC32 : %x\n", (unsigned int)header->unknown_crc32);
 }
 
 void verify(const char* file_path)
