@@ -48,6 +48,7 @@ typedef struct firmimg_entry_info
 
 typedef struct firmimg
 {
+	uint32_t header_checksum;
 	int drac_family;
 	uint16_t num_entries;
 	char release[16];

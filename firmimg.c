@@ -125,10 +125,10 @@ FIRMIMG_FILE* _firmimg_open(const char* file_path, const char* mode)
 		unsigned char uint32_buf[4];
 
 		fread(uint32_buf, sizeof(unsigned char), sizeof(uint32_buf), firmimg_fp->fp);
-		uint32_t header_checksum = *((uint32_t*)uint32_buf);
+		firmimg_fp->firmware_image->header_checksum = *((uint32_t*)uint32_buf);
 		uint32_t file_header_checksum = fcrc32(firmimg_fp->fp, 4, FIRMIMG_HEADER_SIZE - 4);
-	
-		if(header_checksum != file_header_checksum)
+
+		if(firmimg_fp->firmware_image->header_checksum != file_header_checksum)
 		{
 			printf("Incorrect header checksum !\n");
 			firmimg_close(firmimg_fp);
@@ -227,6 +227,11 @@ void verify(int argc, char **argv)
 	printf("Firmware version : %s (Build %d)\n", firmimg_fp->firmware_image->release, firmimg_fp->firmware_image->build);
 	printf("Num. entries : %d\n", firmimg_fp->firmware_image->num_entries);
 
+	uint32_t header_checksum = fcrc32(firmimg_fp->fp, 4, FIRMIMG_HEADER_SIZE - 4);
+	printf("Header checksum : %x\n", firmimg_fp->firmware_image->header_checksum);
+	printf("File header checksum : %x\n", header_checksum);
+	printf("Header checksum status : %s\n", ((firmimg_fp->firmware_image->header_checksum == header_checksum) ? "VALID" : "INVALID"));
+
 	firmimg_entry_info* drac_schema = get_schema(firmimg_fp->firmware_image->drac_family);
 	for(int i = 0; i < firmimg_fp->firmware_image->num_entries; i++)
 	{
@@ -241,7 +246,9 @@ void verify(int argc, char **argv)
 		}
 		printf("\tOffset : %d\n", entry.offset);
 		printf("\tSize : %d\n", entry.size);
-		printf("\tChecksum : %x (%s)\n", entry.checksum, ((entry_checksum == entry.checksum) ? "VALID" : "INVALID"));
+		printf("\tEntry checksum : %x\n", entry.checksum);
+		printf("\tFile entry Checksum : %x\n", entry_checksum);
+		printf("\tEntry checksum status : %s\n", ((entry_checksum == entry.checksum) ? "VALID" : "INVALID"));
 	}
 
 	firmimg_close(firmimg_fp);
