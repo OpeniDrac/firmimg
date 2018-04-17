@@ -82,6 +82,9 @@ firmimg_entry_info* get_schema(const int idrac_family)
 	{
 		case IDRAC6:
 			return iDRAC6_schema;
+		case IDRAC7:
+		case IDRAC8:
+			return iDRAC7_schema;
 		default:
 			return NULL;
 	}

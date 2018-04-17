@@ -70,14 +70,37 @@ static firmimg_entry_info iDRAC6_schema[3] = {
 	},
 	{
 		.name = "cramfs",
-		.file_name = "filesystem.cramfs",
-		.description = "Filesystem"
+		.file_name = "main_fs.cramfs",
+		.description = "CramFS main filesystem"
 	},
 	{
 		.name = "unknown",
 		.file_name = "unknown.bin",
 		.description = "Unknown data"
 	}
+};
+
+static firmimg_entry_info iDRAC7_schema[4] = {
+	{
+		.name = "uImage",
+		.file_name = "kernel.uImage",
+		.description = "Linux kernel uImage"
+	},
+	{
+		.name = "main_squashfs",
+		.file_name = "main_fs.squashfs",
+		.description = "SquashFS main filesystem"
+	},
+	{
+		.name = "unknown",
+		.file_name = "unknown.bin",
+		.description = "Unknown data"
+	},
+	{
+		.name = "config_squashfs",
+		.file_name = "config_fs.squashfs",
+		.description = "SquashFS config filesystem"
+	},
 };
 
 static uint32_t fcrc32(FILE* fp, size_t offset, size_t count);
