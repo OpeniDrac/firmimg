@@ -213,7 +213,7 @@ void verify(int argc, char **argv)
 {
 	if(argc < 3)
 	{
-		printf("File path not set !");
+		printf("File path not set !\n");
 		return;
 	}
 
@@ -261,7 +261,7 @@ void unpack(int argc, char **argv)
 {
 	if(argc < 3)
 	{
-		printf("File path not set !");
+		printf("File path not set !\n");
 		return;
 	}
 
@@ -320,7 +320,7 @@ void pack(int argc, char **argv)
 {
 	if(argc < 3)
 	{
-		printf("File path not set !");
+		printf("File path not set !\n");
 		return;
 	}
 
@@ -352,8 +352,12 @@ void pack(int argc, char **argv)
 	closedir(data_dir);
 
 	unsigned char header_buffer[FIRMIMG_HEADER_SIZE];
-	header_buffer[0] = 0x01;
-	header_buffer[1] = 0x01;
+	header_buffer[4] = 0x01;
+	header_buffer[5] = 0x01;
+
+	
+
+	header_buffer[7] = 0x00;
 
 	firmimg_close(firmimg_fp);
 }

@@ -21,6 +21,7 @@ verify: all
 
 pack: all cramfs
 	@${PWD}/firmimg pack $(FILE)
+	@echo "Firmware packed !"
 
 unpack: all cramfs
 	@${PWD}/firmimg unpack $(FILE)
