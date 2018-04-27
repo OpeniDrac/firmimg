@@ -182,6 +182,7 @@ FIRMIMG_FILE* _firmimg_open(const char* file_path, const char* mode)
 	if(strcmp(mode, "w") == 0)
 	{
 		firmimg_fp->firmware_image->num_entries = 0;
+		firmimg_fp->firmware_image->entries = NULL;
 	}
 
 	return firmimg_fp;
@@ -326,6 +327,13 @@ void pack(int argc, char **argv)
 
 	const char* file_path = argv[2];
 
+	int files_count = (argc - 3);
+	if(files_count <= 0)
+	{
+		printf("No entries file set !\n");
+		return;
+	}
+
 	FIRMIMG_FILE* firmimg_fp = firmimg_create(file_path);
 	if(firmimg_fp == NULL)
 	{
@@ -333,31 +341,44 @@ void pack(int argc, char **argv)
 		return;
 	}
 
-	DIR* data_dir = opendir("./data/");
-	struct dirent* dir;
-	if (data_dir == NULL)
-	{
-		perror("Failed to open directory");
-
-		firmimg_close(firmimg_fp);
-		return;
-	}
-
-	while ((dir = readdir(data_dir)) != NULL)
-	{
-		if(dir->d_type != DT_DIR)
-			printf("%s\n", dir->d_name);
-	}
-
-	closedir(data_dir);
-
 	unsigned char header_buffer[FIRMIMG_HEADER_SIZE];
 	header_buffer[4] = 0x01;
 	header_buffer[5] = 0x01;
-
-	
-
+	header_buffer[6] = files_count;
 	header_buffer[7] = 0x00;
+
+	header_buffer[8] = 0x02;
+	header_buffer[9] = 0x55;
+	header_buffer[10] = 0x04;
+	header_buffer[11] = 0x00;
+
+	/* Start unknown data */
+	header_buffer[12] = 0x00;
+	header_buffer[13] = 0x4E;
+	header_buffer[14] = 0x60;
+	header_buffer[15] = 0x03;
+
+	header_buffer[16] = 0x01;
+	header_buffer[17] = 0x02;
+	header_buffer[18] = 0x00;
+	header_buffer[19] = 0x00;
+
+	header_buffer[20] = 0x01;
+	header_buffer[21] = 0x13;
+	header_buffer[22] = 0x08;
+	header_buffer[23] = 0x00;
+
+	header_buffer[24] = 0x57;
+	header_buffer[25] = 0x48;
+	header_buffer[26] = 0x4F;
+	header_buffer[27] = 0x56;
+	/* End unknown data */
+
+	for(int i = 3; i < argc; i++)
+	{
+		char* entry_file_path = argv[i];
+		printf("%s\n", entry_file_path);
+	}
 
 	firmimg_close(firmimg_fp);
 }
