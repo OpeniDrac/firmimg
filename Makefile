@@ -1,46 +1,8 @@
 CC = gcc
-CFLAGS = -W -Wall -O2 -g
-CPPFLAGS = -I.
-LDLIBS = -lz
-PROGS  = firmimg
+LDFLAGS = -O0 -Wall -Wextra $(shell pkg-config --libs -cflags zlib)
 
-CRAMFS_DIR = ${PWD}/cramfs
-CRAMFSCK = $(CRAMFS_DIR)/cramfsck
-MKCRAMFS = $(CRAMFS_DIR)/mkcramfs
+firmimg: firmimg.c
+	$(CC) $(LDFLAGS) firmimg.c -o firmimg
 
-DATA_DIR = ${PWD}/data
-IDRACFS_DIR = ${PWD}/idracfs
-
-all: $(PROGS)
-
-cramfs:
-	$(MAKE) -C ${PWD}/cramfs
-
-verify: all
-	@${PWD}/firmimg verify $(FILE)
-
-pack: all cramfs
-	@${PWD}/firmimg pack $(FILE)
-	@echo "Firmware packed !"
-
-unpack: all cramfs
-	@${PWD}/firmimg unpack $(FILE)
-	sudo rm -Rf $(IDRACFS_DIR)
-	sudo $(CRAMFSCK) -x $(IDRACFS_DIR) $(DATA_DIR)/cramfs
-	@echo "Firmware is unpacked !"
-
-help:
-	@echo "make [COMMAND]"
-	@echo ""
-	@echo "command :"
-	@echo "	all		Make firmimg program"
-	@echo "	clean		Clean firmimg program"
-	@echo "	pack		Pack cramfs of firmware image"
-	@echo "	unpack		Unpack cramfs of firmware image"
-	@echo "	help		Show help"
-
-distclean clean:
-	rm -f $(PROGS)
-
-.PHONY: all clean
-
+clean:
+	rm -rvf *.o firmimg
