@@ -20,7 +20,7 @@ static uint32_t fcrc32(FILE *fp, size_t offset, size_t length)
 		fread(buffer, sizeof(Bytef), read_size, fp);
 		if(ferror(fp) != 0)
 		{
-			perror("Failed to read file");
+			perror("Failed to read file for crc32");
 			return 0;
 		}
 
@@ -153,6 +153,81 @@ static void do_info(char *path)
 	firmimg_close(firmimg);
 }
 
+static void do_extract(char *path)
+{
+	firmimg_t *firmimg = firmimg_open(path);
+	firmimg_image_t image;
+	char image_path[22];
+	FILE *image_fp;
+	size_t left_length, read_size;
+	Bytef buffer[512];
+	uint32_t image_crc32;
+
+	if(firmimg->header_crc32 != firmimg->header.crc32)
+	{
+		puts("Invalid header checksum");
+		exit(EXIT_FAILURE);
+	}
+
+	printf("Found %d images !\n", firmimg->header.num_of_image);
+	for(uint8_t i = 0; i < firmimg->header.num_of_image; i++)
+	{
+		image = firmimg->images[i];
+
+		if(image.info.crc32 != image.crc32)
+		{
+			puts("Invalid image checksum");
+			exit(EXIT_FAILURE);
+		}
+
+		printf("Image %d : ", i);
+
+		snprintf(image_path, sizeof(image_path), "image_%hhu.dat", i);
+		image_fp = fopen(image_path, "w+");
+		if(image_fp == NULL)
+		{
+			perror("Failed to extract image file");
+			exit(EXIT_FAILURE);
+		}
+
+		fseek(firmimg->fp, image.info.offset, SEEK_SET);
+
+		left_length = image.info.size;
+		while(left_length > 0)
+		{
+			read_size = (left_length > sizeof(buffer)) ? sizeof(buffer) : left_length;
+			fread(buffer, sizeof(Bytef), read_size, firmimg->fp);
+			if(ferror(firmimg->fp) != 0)
+			{
+				perror("Failed to read file for extraction");
+				exit(EXIT_FAILURE);
+			}
+
+			fwrite(buffer, sizeof(Bytef), read_size, image_fp);
+			if(ferror(image_fp) != 0)
+			{
+				perror("Failed to write file for extraction");
+				exit(EXIT_FAILURE);
+			}
+
+			left_length -= read_size;
+		}
+
+		puts("Extracted !");
+
+		printf("Image %d : ", i);
+		image_crc32 = fcrc32(image_fp, 0, image.info.size);
+		if(image_crc32 == image.info.crc32)
+			puts("Valid checksum !");
+		else
+			puts("Invalid checksum !");
+
+		fclose(image_fp);
+	}
+
+	firmimg_close(firmimg);
+}
+
 static void usage(void)
 {
 	puts(
@@ -166,7 +241,8 @@ static void usage(void)
 enum action_t
 {
 	NONE,
-	INFO
+	INFO,
+	EXTRACT
 };
 
 int main(int argc, char *argv[])
@@ -178,6 +254,7 @@ int main(int argc, char *argv[])
 	static struct option long_options[] =
 	{
 		{"info", required_argument, 0, 'i'},
+		{"extract", required_argument, 0, 'e'},
 		{"help", no_argument, 0, 'h'}
 	};
 
@@ -197,6 +274,12 @@ int main(int argc, char *argv[])
 				path_file = optarg;
 				break;
 			}
+			case 'e':
+			{
+				action = EXTRACT;
+				path_file = optarg;
+				break;
+			}
 			case 'h':
 			default:
 				usage();
@@ -210,6 +293,9 @@ int main(int argc, char *argv[])
 			break;
 		case INFO:
 			do_info(path_file);
+			break;
+		case EXTRACT:
+			do_extract(path_file);
 			break;
 	}
 
