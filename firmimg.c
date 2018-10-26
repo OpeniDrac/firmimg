@@ -62,11 +62,13 @@ static firmimg_t *firmimg_open(char *path)
 	if(firmimg->idrac_family == IDRAC_Unknown)
 	{
 		puts("Unknown idrac family");
+		free(firmimg);
 		exit(EXIT_FAILURE);
 	}
 	else if(firmimg->idrac_family == IDRAC9)
 	{
 		puts("Not supported idrac family");
+		free(firmimg);
 		exit(EXIT_FAILURE);
 	}
 
@@ -74,6 +76,7 @@ static firmimg_t *firmimg_open(char *path)
 	if(firmimg->fp == NULL)
 	{
 		perror("Failed to open firmimg");
+		free(firmimg);
 		exit(EXIT_FAILURE);
 	}
 
@@ -82,6 +85,7 @@ static firmimg_t *firmimg_open(char *path)
 	if(ferror(firmimg->fp) != 0)
 	{
 		perror("Failed to read header");
+		free(firmimg);
 		exit(EXIT_FAILURE);
 	}
 
@@ -166,6 +170,7 @@ static void do_extract(char *path)
 	if(firmimg->header_crc32 != firmimg->header.crc32)
 	{
 		puts("Invalid header checksum");
+		firmimg_close(firmimg);
 		exit(EXIT_FAILURE);
 	}
 
@@ -177,6 +182,7 @@ static void do_extract(char *path)
 		if(image.info.crc32 != image.crc32)
 		{
 			puts("Invalid image checksum");
+			firmimg_close(firmimg);
 			exit(EXIT_FAILURE);
 		}
 
@@ -187,6 +193,7 @@ static void do_extract(char *path)
 		if(image_fp == NULL)
 		{
 			perror("Failed to extract image file");
+			firmimg_close(firmimg);
 			exit(EXIT_FAILURE);
 		}
 
@@ -200,6 +207,8 @@ static void do_extract(char *path)
 			if(ferror(firmimg->fp) != 0)
 			{
 				perror("Failed to read file for extraction");
+				firmimg_close(firmimg);
+				fclose(image_fp);
 				exit(EXIT_FAILURE);
 			}
 
@@ -207,6 +216,8 @@ static void do_extract(char *path)
 			if(ferror(image_fp) != 0)
 			{
 				perror("Failed to write file for extraction");
+				firmimg_close(firmimg);
+				fclose(image_fp);
 				exit(EXIT_FAILURE);
 			}
 
