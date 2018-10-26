@@ -43,6 +43,12 @@ typedef struct firmimg_image_info
 	uint32_t crc32;
 } firmimg_image_info_t;
 
+typedef struct firmimg_image
+{
+	firmimg_image_info_t info;
+	uint32_t crc32;
+} firmimg_image_t;
+
 #define IDRAC6_EXTENSION "d6"
 #define IDRAC7_EXTENSION "d7"
 #define IDRAC8_EXTENSION "d8"
@@ -56,5 +62,14 @@ enum idrac_family_t
 	IDRAC8 = 8,
 	IDRAC9 = 9
 };
+
+typedef struct firmimg
+{
+	FILE *fp;
+	enum idrac_family_t idrac_family;
+	uint32_t header_crc32;
+	firmimg_header_t header;
+	firmimg_image_t *images;
+} firmimg_t;
 
 #endif

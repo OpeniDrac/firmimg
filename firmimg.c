@@ -54,48 +54,68 @@ static enum idrac_family_t get_idrac_family(const char *path)
 	return IDRAC_Unknown;
 }
 
-static void do_info(char *path)
+static firmimg_t *firmimg_open(char *path)
 {
-	enum idrac_family_t idrac_family = get_idrac_family(path);
-	if(idrac_family == IDRAC_Unknown)
+	firmimg_t *firmimg = malloc(sizeof(firmimg_t));
+
+	firmimg->idrac_family = get_idrac_family(path);
+	if(firmimg->idrac_family == IDRAC_Unknown)
 	{
 		puts("Unknown idrac family");
-		return;
+		exit(EXIT_FAILURE);
 	}
-	else if(idrac_family == IDRAC9)
+	else if(firmimg->idrac_family == IDRAC9)
 	{
 		puts("Not supported idrac family");
-		return;
+		exit(EXIT_FAILURE);
 	}
 
-	printf("Dell Remote Access Controller family : %d\n", idrac_family);
-
-	FILE *firmimg_fp;
-	firmimg_header_t *image_header;
-	uint32_t header_checksum;
-	firmimg_image_info_t *image_info;
-	uint32_t image_checksum;
-	int i;
-
-	firmimg_fp = fopen(path, "r");
-	if(firmimg_fp == NULL)
+	firmimg->fp = fopen(path, "r");
+	if(firmimg->fp == NULL)
 	{
 		perror("Failed to open firmimg");
 		exit(EXIT_FAILURE);
 	}
 
 	Bytef header_buffer[FIRMIMG_HEADER_SIZE];
-	fread(header_buffer, sizeof(Bytef), FIRMIMG_HEADER_SIZE, firmimg_fp);
-	if(ferror(firmimg_fp) != 0)
+	fread(header_buffer, sizeof(Bytef), FIRMIMG_HEADER_SIZE, firmimg->fp);
+	if(ferror(firmimg->fp) != 0)
 	{
 		perror("Failed to read header");
 		exit(EXIT_FAILURE);
 	}
 
-	image_header = (firmimg_header_t*)header_buffer;
-	header_checksum = crc32(0, header_buffer + 4, FIRMIMG_HEADER_SIZE - 4);
+	memcpy(&firmimg->header, &header_buffer, sizeof(firmimg_header_t));
+	firmimg->header_crc32 = crc32(0, header_buffer + 4, FIRMIMG_HEADER_SIZE - 4);
+
+	firmimg->images = malloc(sizeof(firmimg_image_t) * firmimg->header.num_of_image);
+	for(int i = 0; i < firmimg->header.num_of_image; i++)
+	{
+		firmimg_image_t image;
+		memcpy(&image.info, header_buffer + sizeof(firmimg_header_t) + (i * sizeof(firmimg_image_info_t)), sizeof(firmimg_image_info_t));
+		image.crc32 = fcrc32(firmimg->fp, image.info.offset, image.info.size);
+
+		firmimg->images[i] = image;
+	}
+
+	return firmimg;
+}
+
+static int firmimg_close(firmimg_t *firmimg)
+{
+	int ret = fclose(firmimg->fp);
+	free(firmimg->images);
+	free(firmimg);
+
+	return ret;
+}
+
+static void do_info(char *path)
+{
+	firmimg_t *firmimg = firmimg_open(path);
 
 	printf(
+		"Dell Remote Access Controller family : %d\n"
 		"Header checksum: %x (%x)\n"
 		"Header version: %d\n"
 		"Num. of image(s): %d\n"
@@ -104,19 +124,20 @@ static void do_info(char *path)
 		"U-Boot version: %d.%d.%d\n"
 		"AVCT U-Boot version: %d.%d.%d\n"
 		"Platform ID: %s (%s)\n",
-		image_header->crc32, header_checksum,
-		image_header->header_version,
-		image_header->num_of_image,
-		image_header->version.version, image_header->version.sub_version, image_header->version.build,
-		image_header->image_size,
-		image_header->uboot_ver[0], image_header->uboot_ver[1], image_header->uboot_ver[2],
-		image_header->uboot_ver[4], image_header->uboot_ver[5], image_header->uboot_ver[6],
-		(strcmp((char*)image_header->platform_id, IDRAC6_SVB_PLATFORM_ID) == 0) ? IDRAC6_SVB_IDENTIFIER : (strcmp((char*)image_header->platform_id, IDRAC6_WHOVILLE_PLATFORM_ID) == 0) ? IDRAC6_WHOVILLE_IDENTIFIER : "Unknown", image_header->platform_id);
+		firmimg->idrac_family,
+		firmimg->header.crc32, firmimg->header_crc32,
+		firmimg->header.header_version,
+		firmimg->header.num_of_image,
+		firmimg->header.version.version, firmimg->header.version.sub_version, firmimg->header.version.build,
+		firmimg->header.image_size,
+		firmimg->header.uboot_ver[0], firmimg->header.uboot_ver[1], firmimg->header.uboot_ver[2],
+		firmimg->header.uboot_ver[4], firmimg->header.uboot_ver[5], firmimg->header.uboot_ver[6],
 
-	for(i = 0; i < image_header->num_of_image; i++)
+		(strcmp((char*)firmimg->header.platform_id, IDRAC6_SVB_PLATFORM_ID) == 0) ? IDRAC6_SVB_IDENTIFIER : (strcmp((char*)firmimg->header.platform_id, IDRAC6_WHOVILLE_PLATFORM_ID) == 0) ? IDRAC6_WHOVILLE_IDENTIFIER : "Unknown", firmimg->header.platform_id);
+
+	for(int i = 0; i < firmimg->header.num_of_image; i++)
 	{
-		image_info = (firmimg_image_info_t*)(header_buffer + sizeof(firmimg_header_t) + (i * sizeof(firmimg_image_info_t)));
-		image_checksum = fcrc32(firmimg_fp, image_info->offset, image_info->size);
+		firmimg_image_t image = firmimg->images[i];
 
 		printf(
 			"Image %d:\n"
@@ -124,12 +145,12 @@ static void do_info(char *path)
 			"Size: %d bytes\n"
 			"Checksum: %x (%x)\n",
 			i,
-			image_info->offset,
-			image_info->size,
-			image_info->crc32, image_checksum);
+			image.info.offset,
+			image.info.size,
+			image.info.crc32, image.crc32);
 	}
 
-	fclose(firmimg_fp);
+	firmimg_close(firmimg);
 }
 
 static void usage(void)
