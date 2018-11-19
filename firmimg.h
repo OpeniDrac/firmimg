@@ -2,13 +2,17 @@
 #define _FIRMIMG_H
 
 #include <stdint.h>
+#include <stdio.h>
 
 #define IDRAC6_SVB_PLATFORM_ID		"WEVB"
 #define IDRAC6_SVB_IDENTIFIER		"EVB"
 #define IDRAC6_WHOVILLE_PLATFORM_ID	"WHOV"
 #define IDRAC6_WHOVILLE_IDENTIFIER	"Whoville"
 
-#define FIRMIMG_HEADER_SIZE 512
+#define FIRMIMG_HEADER_SIZE		512
+#define FIRMIMG_MAX_IMAGES		(FIRMIMG_HEADER_SIZE - sizeof(firmimg_header_t)) / sizeof(firmimg_image_t)
+#define FIRMIMG_HEADER_VERSION		1
+#define FIRMIMG_IMAGE_iBMC		1
 
 /* There structures is based on U-Boot source code published by Dell (opensource.dell.com) */
 
@@ -21,7 +25,7 @@ typedef struct firmimg_version
 
 typedef struct firmimg_header
 {
-	uint32_t crc32;			/* Header checksum */
+	uint32_t crc32;
 	uint8_t header_version;		/* Header version : 1 */
 	uint8_t image_type;		/* Image type : 1 is for iBMC */
 	uint8_t num_of_image;
@@ -36,16 +40,10 @@ typedef struct firmimg_header
 	uint32_t reserved_4;
 } firmimg_header_t;
 
-typedef struct firmimg_image_info
+typedef struct firmimg_image
 {
 	uint32_t offset;
 	uint32_t size;
-	uint32_t crc32;
-} firmimg_image_info_t;
-
-typedef struct firmimg_image
-{
-	firmimg_image_info_t info;
 	uint32_t crc32;
 } firmimg_image_t;
 
@@ -63,13 +61,17 @@ enum idrac_family_t
 	IDRAC9 = 9
 };
 
+typedef struct firmimg_header_file
+{
+	firmimg_header_t header;
+	firmimg_image_t *images;
+} firmimg_header_file_t;
+
 typedef struct firmimg
 {
 	FILE *fp;
 	enum idrac_family_t idrac_family;
-	uint32_t header_crc32;
-	firmimg_header_t header;
-	firmimg_image_t *images;
+	firmimg_header_file_t header;
 } firmimg_t;
 
 #endif

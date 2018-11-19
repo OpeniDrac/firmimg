@@ -5,4 +5,4 @@ firmimg: firmimg.c
 	$(CC) $(LDFLAGS) firmimg.c -o firmimg
 
 clean:
-	rm -rvf *.o firmimg
+	rm -rvf firmimg
