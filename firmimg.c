@@ -43,12 +43,12 @@ static uint32_t fcrc32(FILE *fp, const long int offset, const long int length)
 static enum idrac_family_t get_idrac_family(const char *path)
 {
 	if(path == NULL)
-		return IDRAC_Unknown;
+		return -1;
 
 	const char *file_name = strrchr(path, '/');
 	char* file_extension = strrchr(((file_name == NULL) ? path : file_name), '.');
 	if(file_extension == NULL)
-		return IDRAC_Unknown;
+		return -1;
 
 	file_extension++;
 
@@ -60,8 +60,8 @@ static enum idrac_family_t get_idrac_family(const char *path)
 		return IDRAC8;
 	else if(strcmp(file_extension, IDRAC9_EXTENSION) == 0)
 		return IDRAC9;
-
-	return IDRAC_Unknown;
+	else
+		return 0;
 }
 
 static firmimg_t *firmimg_open(const char *path, const char *mode)
@@ -69,13 +69,13 @@ static firmimg_t *firmimg_open(const char *path, const char *mode)
 	firmimg_t *firmimg = malloc(sizeof(firmimg_t));
 
 	firmimg->idrac_family = get_idrac_family(path);
-	if(firmimg->idrac_family == IDRAC_Unknown)
+	if(firmimg->idrac_family <= 0)
 	{
 		puts("Unknown idrac family");
 		free(firmimg);
 		exit(EXIT_FAILURE);
 	}
-	else if(firmimg->idrac_family == IDRAC9)
+	else if(firmimg->idrac_family >= IDRAC9)
 	{
 		puts("Not supported idrac family");
 		free(firmimg);

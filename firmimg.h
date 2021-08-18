@@ -54,7 +54,6 @@ typedef struct firmimg_image
 
 enum idrac_family_t
 {
-	IDRAC_Unknown = -1,
 	IDRAC6 = 6,
 	IDRAC7 = 7,
 	IDRAC8 = 8,
