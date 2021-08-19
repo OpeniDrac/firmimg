@@ -9,10 +9,10 @@
 #define IDRAC6_WHOVILLE_PLATFORM_ID	"WHOV"
 #define IDRAC6_WHOVILLE_IDENTIFIER	"Whoville"
 
-#define FIRMIMG_HEADER_SIZE		512
-#define FIRMIMG_MAX_IMAGES		(FIRMIMG_HEADER_SIZE - sizeof(firmimg_header_t)) / sizeof(firmimg_image_t)
-#define FIRMIMG_HEADER_VERSION		1
-#define FIRMIMG_IMAGE_iBMC		1
+#define FIRMIMG_HEADER_SIZE			512
+#define FIRMIMG_MAX_IMAGES			(FIRMIMG_HEADER_SIZE - sizeof(firmimg_header_t))/ sizeof(firmimg_image_t)
+#define FIRMIMG_HEADER_VERSION	1
+#define FIRMIMG_IMAGE_iBMC			1
 
 /* There structures is based on U-Boot source code published by Dell (opensource.dell.com) */
 
@@ -63,7 +63,7 @@ enum idrac_family_t
 typedef struct firmimg_header_file
 {
 	firmimg_header_t header;
-	firmimg_image_t *images;
+	firmimg_image_t images[FIRMIMG_MAX_IMAGES];
 } firmimg_header_file_t;
 
 typedef struct firmimg

@@ -67,7 +67,6 @@ static enum idrac_family_t get_idrac_family(const char *path)
 static firmimg_t *firmimg_open(const char *path, const char *mode)
 {
 	firmimg_t *firmimg = malloc(sizeof(firmimg_t));
-	int i;
 
 	firmimg->idrac_family = get_idrac_family(path);
 	if(firmimg->idrac_family <= 0 || firmimg->idrac_family >= IDRAC9) {
@@ -85,31 +84,22 @@ static firmimg_t *firmimg_open(const char *path, const char *mode)
 		return NULL;
 	}
 
-	firmimg->header.images = NULL;
 	firmimg->header.header.num_of_image = 0;
 
-	if(strcmp(mode, "r") == 0) {
-		Bytef header_buffer[FIRMIMG_HEADER_SIZE];
-		if(fread(header_buffer, sizeof(Bytef), FIRMIMG_HEADER_SIZE, firmimg->fp) != FIRMIMG_HEADER_SIZE) {
-			perror("Failed to read header");
-			fclose(firmimg->fp);
-			free(firmimg);
-			
-			return NULL;
-		}
-
-		memcpy(&firmimg->header.header, &header_buffer, sizeof(firmimg_header_t));
-
-		firmimg->header.images = malloc(sizeof(firmimg_image_t) * firmimg->header.header.num_of_image);
-		for(i = 0; i < firmimg->header.header.num_of_image; i++) {
-			firmimg_image_t image;
-			memcpy(&image, header_buffer + sizeof(firmimg_header_t) + (i * sizeof(firmimg_image_t)), sizeof(firmimg_image_t));
-
-			firmimg->header.images[i] = image;
-		}
-	}
-
 	return firmimg;
+}
+
+static int firmimg_read_header(firmimg_t *firmimg)
+{
+	size_t read_len;
+
+	read_len = fread(&firmimg->header.header, sizeof(uint8_t),
+										sizeof(firmimg_header_file_t), firmimg->fp);
+
+	if(read_len != sizeof(firmimg_header_file_t))
+		return -1;
+
+	return 0;
 }
 
 static int firmimg_add(firmimg_t *firmimg, const char* path)
@@ -132,15 +122,6 @@ static int firmimg_add(firmimg_t *firmimg, const char* path)
 
 	index = firmimg->header.header.num_of_image;
 	firmimg->header.header.num_of_image++;
-	if(firmimg->header.images)
-		firmimg->header.images = realloc(firmimg->header.images, sizeof(firmimg_image_t) * firmimg->header.header.num_of_image); 
-	else
-		firmimg->header.images = malloc(sizeof(firmimg_image_t) * firmimg->header.header.num_of_image);
-
-	if(!firmimg->header.images) {
-		fclose(fp_image);
-		return -1;
-	}
 
 	if(index > 0)
 		firmimg->header.images[index].offset = firmimg->header.images[index - 1].offset + firmimg->header.images[index - 1].size;
@@ -200,9 +181,6 @@ static int firmimg_close(firmimg_t *firmimg)
 
 	ret = fclose(firmimg->fp);
 
-	if(firmimg->header.images)
-		free(firmimg->header.images);
-
 	free(firmimg);
 
 	return ret;
@@ -217,6 +195,12 @@ static int do_info(const char *path)
 	firmimg = firmimg_open(path, "r");
 	if(firmimg == NULL)
 		return EXIT_FAILURE;
+
+	if(firmimg_read_header(firmimg)) {
+		puts("Failed to read header");
+
+		return EXIT_FAILURE;
+	}
 
 	crc32_checksum = fcrc32(firmimg->fp, 4, FIRMIMG_HEADER_SIZE - 4);
 
@@ -275,6 +259,12 @@ static int do_extract(const char *path)
 	firmimg = firmimg_open(path, "r");
 	if(firmimg == NULL)
 		return EXIT_FAILURE;
+
+	if(firmimg_read_header(firmimg)) {
+		puts("Failed to read header");
+
+		return EXIT_FAILURE;
+	}
 
 	crc32_checksum = fcrc32(firmimg->fp, 4, FIRMIMG_HEADER_SIZE - 4);
 	if(crc32_checksum != firmimg->header.header.crc32) {
