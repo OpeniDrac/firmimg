@@ -22,7 +22,7 @@ static uint32_t fcrc32(FILE *fp, const long int offset, const long int length)
 		left_length = ftell(fp);
 	}
 	else
-	left_length = length;
+		left_length = length;
 
 	while(left_length > 0)
 	{
@@ -67,48 +67,41 @@ static enum idrac_family_t get_idrac_family(const char *path)
 static firmimg_t *firmimg_open(const char *path, const char *mode)
 {
 	firmimg_t *firmimg = malloc(sizeof(firmimg_t));
+	int i;
 
 	firmimg->idrac_family = get_idrac_family(path);
-	if(firmimg->idrac_family <= 0)
-	{
-		puts("Unknown idrac family");
+	if(firmimg->idrac_family <= 0 || firmimg->idrac_family >= IDRAC9) {
+		puts("Invalid or unsupported idrac family");
 		free(firmimg);
-		exit(EXIT_FAILURE);
-	}
-	else if(firmimg->idrac_family >= IDRAC9)
-	{
-		puts("Not supported idrac family");
-		free(firmimg);
-		exit(EXIT_FAILURE);
+		
+		return NULL;
 	}
 
 	firmimg->fp = fopen(path, mode);
-	if(!firmimg->fp)
-	{
+	if(!firmimg->fp) {
 		perror("Failed to open firmimg");
 		free(firmimg);
-		exit(EXIT_FAILURE);
+		
+		return NULL;
 	}
 
 	firmimg->header.images = NULL;
 	firmimg->header.header.num_of_image = 0;
 
-	if(strcmp(mode, "r") == 0)
-	{
+	if(strcmp(mode, "r") == 0) {
 		Bytef header_buffer[FIRMIMG_HEADER_SIZE];
-		if(fread(header_buffer, sizeof(Bytef), FIRMIMG_HEADER_SIZE, firmimg->fp) != FIRMIMG_HEADER_SIZE)
-		{
+		if(fread(header_buffer, sizeof(Bytef), FIRMIMG_HEADER_SIZE, firmimg->fp) != FIRMIMG_HEADER_SIZE) {
 			perror("Failed to read header");
 			fclose(firmimg->fp);
 			free(firmimg);
-			exit(EXIT_FAILURE);
+			
+			return NULL;
 		}
 
 		memcpy(&firmimg->header.header, &header_buffer, sizeof(firmimg_header_t));
 
 		firmimg->header.images = malloc(sizeof(firmimg_image_t) * firmimg->header.header.num_of_image);
-		for(int i = 0; i < firmimg->header.header.num_of_image; i++)
-		{
+		for(i = 0; i < firmimg->header.header.num_of_image; i++) {
 			firmimg_image_t image;
 			memcpy(&image, header_buffer + sizeof(firmimg_header_t) + (i * sizeof(firmimg_image_t)), sizeof(firmimg_image_t));
 
@@ -144,8 +137,7 @@ static int firmimg_add(firmimg_t *firmimg, const char* path)
 	else
 		firmimg->header.images = malloc(sizeof(firmimg_image_t) * firmimg->header.header.num_of_image);
 
-	if(!firmimg->header.images)
-	{
+	if(!firmimg->header.images) {
 		fclose(fp_image);
 		return -1;
 	}
@@ -186,6 +178,7 @@ static int firmimg_close(firmimg_t *firmimg)
 {
 	/*uint32_t crc32_checksum;
 	int i;*/
+	int ret;
 
 	if(!firmimg)
 		return -1;
@@ -205,20 +198,25 @@ static int firmimg_close(firmimg_t *firmimg)
 		fwrite(firmimg->header.images, sizeof(*firmimg->header.images), firmimg->header.header.num_of_image, firmimg->fp);
 	}
 
-	int ret = fclose(firmimg->fp);
+	ret = fclose(firmimg->fp);
+
 	if(firmimg->header.images)
 		free(firmimg->header.images);
+
 	free(firmimg);
 
 	return ret;
 }
 
-static void do_info(const char *path)
+static int do_info(const char *path)
 {
 	firmimg_t *firmimg;
 	uint32_t crc32_checksum;
+	int i;
 
 	firmimg = firmimg_open(path, "r");
+	if(firmimg == NULL)
+		return EXIT_FAILURE;
 
 	crc32_checksum = fcrc32(firmimg->fp, 4, FIRMIMG_HEADER_SIZE - 4);
 
@@ -243,8 +241,7 @@ static void do_info(const char *path)
 
 		(strcmp((char*)firmimg->header.header.platform_id, IDRAC6_SVB_PLATFORM_ID) == 0) ? IDRAC6_SVB_IDENTIFIER : (strcmp((char*)firmimg->header.header.platform_id, IDRAC6_WHOVILLE_PLATFORM_ID) == 0) ? IDRAC6_WHOVILLE_IDENTIFIER : "Unknown", firmimg->header.header.platform_id);
 
-	for(int i = 0; i < firmimg->header.header.num_of_image; i++)
-	{
+	for(i = 0; i < firmimg->header.header.num_of_image; i++) {
 		firmimg_image_t image = firmimg->header.images[i];
 		crc32_checksum = fcrc32(firmimg->fp, image.offset, image.size);
 
@@ -260,9 +257,11 @@ static void do_info(const char *path)
 	}
 
 	firmimg_close(firmimg);
+
+	return EXIT_SUCCESS;
 }
 
-static void do_extract(const char *path)
+static int do_extract(const char *path)
 {
 	firmimg_t *firmimg;
 	firmimg_image_t image;
@@ -271,62 +270,63 @@ static void do_extract(const char *path)
 	size_t left_length, read_size;
 	Bytef buffer[512];
 	uint32_t crc32_checksum;
+	uint8_t i;
 
 	firmimg = firmimg_open(path, "r");
+	if(firmimg == NULL)
+		return EXIT_FAILURE;
 
 	crc32_checksum = fcrc32(firmimg->fp, 4, FIRMIMG_HEADER_SIZE - 4);
-	if(crc32_checksum != firmimg->header.header.crc32)
-	{
+	if(crc32_checksum != firmimg->header.header.crc32) {
 		puts("Invalid header checksum");
 		firmimg_close(firmimg);
-		exit(EXIT_FAILURE);
+
+		return EXIT_FAILURE;
 	}
 
 	printf("Found %d images !\n", firmimg->header.header.num_of_image);
-	for(uint8_t i = 0; i < firmimg->header.header.num_of_image; i++)
-	{
+	for(i = 0; i < firmimg->header.header.num_of_image; i++) {
 		image = firmimg->header.images[i];
 
 		crc32_checksum = fcrc32(firmimg->fp, image.offset, image.size);
-		if(image.crc32 != crc32_checksum)
-		{
+		if(image.crc32 != crc32_checksum) {
 			puts("Invalid image checksum");
 			firmimg_close(firmimg);
-			exit(EXIT_FAILURE);
+
+			return EXIT_FAILURE;
 		}
 
 		printf("Image %d : ", i);
 
 		snprintf(image_path, sizeof(image_path), "image_%hhu.dat", i);
 		image_fp = fopen(image_path, "w+");
-		if(image_fp == NULL)
-		{
+		if(image_fp == NULL) {
 			perror("Failed to extract image file");
 			firmimg_close(firmimg);
-			exit(EXIT_FAILURE);
+			
+			return EXIT_FAILURE;
 		}
 
 		fseek(firmimg->fp, image.offset, SEEK_SET);
 
 		left_length = image.size;
-		while(left_length > 0)
-		{
+		while(left_length > 0) {
 			read_size = (left_length > sizeof(buffer)) ? sizeof(buffer) : left_length;
 			fread(buffer, sizeof(Bytef), read_size, firmimg->fp);
-			if(fread(buffer, sizeof(Bytef), read_size, firmimg->fp) != read_size)
-			{
+			if(fread(buffer, sizeof(Bytef), read_size, firmimg->fp) != read_size) {
 				perror("Failed to read file for extraction");
 				firmimg_close(firmimg);
 				fclose(image_fp);
-				exit(EXIT_FAILURE);
+				
+				return EXIT_FAILURE;
 			}
 
-			if(fwrite(buffer, sizeof(Bytef), read_size, image_fp) != read_size)
-			{
+			if(fwrite(buffer, sizeof(Bytef), read_size, image_fp) != read_size) {
 				perror("Failed to write file for extraction");
 				firmimg_close(firmimg);
 				fclose(image_fp);
-				exit(EXIT_FAILURE);
+				
+				return EXIT_FAILURE;
 			}
 
 			left_length -= read_size;
@@ -345,14 +345,18 @@ static void do_extract(const char *path)
 	}
 
 	firmimg_close(firmimg);
+	
+	return EXIT_SUCCESS;
 }
 
-static void do_compact(const char* path, const firmimg_version_t version, const uint8_t *uboot_ver, uint8_t *platform_id, uint8_t num_of_image, char **path_images)
+static int do_compact(const char* path, const firmimg_version_t version, const uint8_t *uboot_ver, uint8_t *platform_id, uint8_t num_of_image, char **path_images)
 {
 	firmimg_t *firmimg;
 	int i, ret;
 
 	firmimg = firmimg_open(path, "w+");
+	if(firmimg == NULL)
+		return EXIT_FAILURE;
 
 	firmimg->header.header.header_version = FIRMIMG_HEADER_VERSION;
 	firmimg->header.header.image_type = FIRMIMG_IMAGE_iBMC;
@@ -361,8 +365,7 @@ static void do_compact(const char* path, const firmimg_version_t version, const 
 	memcpy(firmimg->header.header.uboot_ver, uboot_ver, sizeof(firmimg->header.header.uboot_ver));
 	memcpy(firmimg->header.header.platform_id, platform_id, sizeof(firmimg->header.header.platform_id));
 
-	for(i = 0; i < num_of_image; i++)
-	{
+	for(i = 0; i < num_of_image; i++) {
 		printf("Add %s to firmware image...", path_images[i]);
 
 		ret = firmimg_add(firmimg, path_images[i]);
@@ -373,9 +376,11 @@ static void do_compact(const char* path, const firmimg_version_t version, const 
 	}
 
 	firmimg_close(firmimg);
+
+	return EXIT_SUCCESS;
 }
 
-static void usage(void)
+static int usage(void)
 {
 	puts(
 		"Usage: firmimg [OPTIONS]\n"
@@ -390,7 +395,8 @@ static void usage(void)
 		"	--platform_id=PLATFORM		Set platform id\n"
 		"	--help				Print help"
 	);
-	exit(EXIT_SUCCESS);
+	
+	return EXIT_SUCCESS;
 }
 
 enum action_t
@@ -502,7 +508,7 @@ int main(int argc, char *argv[])
 			}
 			case 'h':
 			default:
-				usage();
+				return usage();
 		}
 	}
 
@@ -523,18 +529,18 @@ int main(int argc, char *argv[])
 	switch(action)
 	{
 		case NONE:
-			usage();
+			return usage();
 			break;
 		case INFO:
-			do_info(path_file);
+			return do_info(path_file);
 			break;
 		case EXTRACT:
-			do_extract(path_file);
+			return do_extract(path_file);
 			break;
 		case COMPACT:
-			do_compact(path_file, version, uboot_ver, plateform_id, num_of_image, path_images);
+			return do_compact(path_file, version, uboot_ver, plateform_id, num_of_image, path_images);
 			break;
 	}
 
-	return EXIT_SUCCESS;
+	return EXIT_FAILURE;
 }
