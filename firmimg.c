@@ -275,7 +275,6 @@ static int extract_image(firmimg_t *firmimg, uint8_t i, firmimg_image_t image)
 	left_length = image.size;
 	while(left_length > 0) {
 		read_size = (left_length > sizeof(buffer)) ? sizeof(buffer) : left_length;
-		fread(buffer, sizeof(Bytef), read_size, firmimg->fp);
 		if(fread(buffer, sizeof(Bytef), read_size, firmimg->fp) != read_size) {
 			perror("Failed to read file for extraction");
 			fclose(image_fp);
