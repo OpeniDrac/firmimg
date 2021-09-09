@@ -172,7 +172,8 @@ static int firmimg_close(firmimg_t *firmimg)
 		memcpy(header_buffer + sizeof(firmimg_header_t), &firmimg->header.images,
 						LEN(firmimg->header.images));
 
-		firmimg->header.header.crc32 = crc32(0L, header_buffer + 4, sizeof(header_buffer) - 4);
+		firmimg->header.header.crc32 = crc32(0L, header_buffer + sizeof(firmimg->header.header.crc32),
+																					sizeof(header_buffer) - sizeof(firmimg->header.header.crc32));
 
 		fseek(firmimg->fp, 0L, SEEK_SET);
 		fwrite(&firmimg->header.header, sizeof(char), sizeof(firmimg_header_t), firmimg->fp);
@@ -203,7 +204,8 @@ static int do_info(const char *path)
 		return EXIT_FAILURE;
 	}
 
-	crc32_checksum = fcrc32(firmimg->fp, 4, FIRMIMG_HEADER_SIZE - 4);
+	crc32_checksum = fcrc32(firmimg->fp, sizeof(firmimg->header.header.crc32),
+													FIRMIMG_HEADER_SIZE - sizeof(firmimg->header.header.crc32));
 
 	printf(
 		"Dell Remote Access Controller family : %d\n"
@@ -329,7 +331,8 @@ static int do_extract(const char *path)
 		return EXIT_FAILURE;
 	}
 
-	crc32_checksum = fcrc32(firmimg->fp, 4, FIRMIMG_HEADER_SIZE - 4);
+	crc32_checksum = fcrc32(firmimg->fp, sizeof(firmimg->header.header.crc32),
+													FIRMIMG_HEADER_SIZE - sizeof(firmimg->header.header.crc32));
 	if(crc32_checksum != firmimg->header.header.crc32) {
 		puts("Invalid header checksum");
 		firmimg_close(firmimg);
