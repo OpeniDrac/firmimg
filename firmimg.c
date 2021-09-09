@@ -245,14 +245,75 @@ static int do_info(const char *path)
 	return EXIT_SUCCESS;
 }
 
-static int do_extract(const char *path)
+static int extract_image(firmimg_t *firmimg, uint8_t i, firmimg_image_t image)
 {
-	firmimg_t *firmimg;
-	firmimg_image_t image;
+	uint32_t crc32_checksum;
 	char image_path[22];
 	FILE *image_fp;
 	size_t left_length, read_size;
 	Bytef buffer[512];
+
+	crc32_checksum = fcrc32(firmimg->fp, image.offset, image.size);
+	if(image.crc32 != crc32_checksum) {
+		puts("Invalid image checksum");
+		firmimg_close(firmimg);
+
+		return EXIT_FAILURE;
+	}
+
+	printf("Image %d: ", i);
+
+	snprintf(image_path, sizeof(image_path), "image_%hhu.dat", i);
+	image_fp = fopen(image_path, "w+");
+	if(image_fp == NULL) {
+		perror("Failed to extract image file");
+		firmimg_close(firmimg);
+		
+		return EXIT_FAILURE;
+	}
+
+	fseek(firmimg->fp, image.offset, SEEK_SET);
+
+	left_length = image.size;
+	while(left_length > 0) {
+		read_size = (left_length > sizeof(buffer)) ? sizeof(buffer) : left_length;
+		fread(buffer, sizeof(Bytef), read_size, firmimg->fp);
+		if(fread(buffer, sizeof(Bytef), read_size, firmimg->fp) != read_size) {
+			perror("Failed to read file for extraction");
+			firmimg_close(firmimg);
+			fclose(image_fp);
+			
+			return EXIT_FAILURE;
+		}
+
+		if(fwrite(buffer, sizeof(Bytef), read_size, image_fp) != read_size) {
+			perror("Failed to write file for extraction");
+			firmimg_close(firmimg);
+			fclose(image_fp);
+			
+			return EXIT_FAILURE;
+		}
+
+		left_length -= read_size;
+	}
+
+	puts("Extracted !");
+
+	printf("Image %d: ", i);
+	crc32_checksum = fcrc32(image_fp, 0, image.size);
+	if(crc32_checksum == image.crc32)
+		puts("Valid checksum !");
+	else
+		puts("Invalid checksum !");
+
+	fclose(image_fp);
+
+	return EXIT_SUCCESS;
+}
+
+static int do_extract(const char *path)
+{
+	firmimg_t *firmimg;
 	uint32_t crc32_checksum;
 	uint8_t i;
 
@@ -276,62 +337,7 @@ static int do_extract(const char *path)
 
 	printf("Found %d images !\n", firmimg->header.header.num_of_image);
 	for(i = 0; i < firmimg->header.header.num_of_image; i++) {
-		image = firmimg->header.images[i];
-
-		crc32_checksum = fcrc32(firmimg->fp, image.offset, image.size);
-		if(image.crc32 != crc32_checksum) {
-			puts("Invalid image checksum");
-			firmimg_close(firmimg);
-
-			return EXIT_FAILURE;
-		}
-
-		printf("Image %d : ", i);
-
-		snprintf(image_path, sizeof(image_path), "image_%hhu.dat", i);
-		image_fp = fopen(image_path, "w+");
-		if(image_fp == NULL) {
-			perror("Failed to extract image file");
-			firmimg_close(firmimg);
-			
-			return EXIT_FAILURE;
-		}
-
-		fseek(firmimg->fp, image.offset, SEEK_SET);
-
-		left_length = image.size;
-		while(left_length > 0) {
-			read_size = (left_length > sizeof(buffer)) ? sizeof(buffer) : left_length;
-			fread(buffer, sizeof(Bytef), read_size, firmimg->fp);
-			if(fread(buffer, sizeof(Bytef), read_size, firmimg->fp) != read_size) {
-				perror("Failed to read file for extraction");
-				firmimg_close(firmimg);
-				fclose(image_fp);
-				
-				return EXIT_FAILURE;
-			}
-
-			if(fwrite(buffer, sizeof(Bytef), read_size, image_fp) != read_size) {
-				perror("Failed to write file for extraction");
-				firmimg_close(firmimg);
-				fclose(image_fp);
-				
-				return EXIT_FAILURE;
-			}
-
-			left_length -= read_size;
-		}
-
-		puts("Extracted !");
-
-		printf("Image %d : ", i);
-		crc32_checksum = fcrc32(image_fp, 0, image.size);
-		if(crc32_checksum == image.crc32)
-			puts("Valid checksum !");
-		else
-			puts("Invalid checksum !");
-
-		fclose(image_fp);
+		extract_image(firmimg, i, firmimg->header.images[i]);
 	}
 
 	firmimg_close(firmimg);
