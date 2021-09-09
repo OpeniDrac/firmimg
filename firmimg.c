@@ -256,7 +256,6 @@ static int extract_image(firmimg_t *firmimg, uint8_t i, firmimg_image_t image)
 	crc32_checksum = fcrc32(firmimg->fp, image.offset, image.size);
 	if(image.crc32 != crc32_checksum) {
 		puts("Invalid image checksum");
-		firmimg_close(firmimg);
 
 		return EXIT_FAILURE;
 	}
@@ -267,7 +266,6 @@ static int extract_image(firmimg_t *firmimg, uint8_t i, firmimg_image_t image)
 	image_fp = fopen(image_path, "w+");
 	if(image_fp == NULL) {
 		perror("Failed to extract image file");
-		firmimg_close(firmimg);
 		
 		return EXIT_FAILURE;
 	}
@@ -280,7 +278,6 @@ static int extract_image(firmimg_t *firmimg, uint8_t i, firmimg_image_t image)
 		fread(buffer, sizeof(Bytef), read_size, firmimg->fp);
 		if(fread(buffer, sizeof(Bytef), read_size, firmimg->fp) != read_size) {
 			perror("Failed to read file for extraction");
-			firmimg_close(firmimg);
 			fclose(image_fp);
 			
 			return EXIT_FAILURE;
@@ -288,7 +285,6 @@ static int extract_image(firmimg_t *firmimg, uint8_t i, firmimg_image_t image)
 
 		if(fwrite(buffer, sizeof(Bytef), read_size, image_fp) != read_size) {
 			perror("Failed to write file for extraction");
-			firmimg_close(firmimg);
 			fclose(image_fp);
 			
 			return EXIT_FAILURE;
@@ -302,9 +298,14 @@ static int extract_image(firmimg_t *firmimg, uint8_t i, firmimg_image_t image)
 	printf("Image %d: ", i);
 	crc32_checksum = fcrc32(image_fp, 0, image.size);
 	if(crc32_checksum == image.crc32)
-		puts("Valid checksum !");
+		puts("Valid file checksum !");
 	else
-		puts("Invalid checksum !");
+	{
+		puts("Invalid file checksum !");
+		fclose(image_fp);
+
+		return EXIT_FAILURE;
+	}
 
 	fclose(image_fp);
 
@@ -316,6 +317,7 @@ static int do_extract(const char *path)
 	firmimg_t *firmimg;
 	uint32_t crc32_checksum;
 	uint8_t i;
+	int ret;
 
 	firmimg = firmimg_open(path, "r");
 	if(firmimg == NULL)
@@ -337,7 +339,9 @@ static int do_extract(const char *path)
 
 	printf("Found %d images !\n", firmimg->header.header.num_of_image);
 	for(i = 0; i < firmimg->header.header.num_of_image; i++) {
-		extract_image(firmimg, i, firmimg->header.images[i]);
+		ret = extract_image(firmimg, i, firmimg->header.images[i]);
+		if(ret != EXIT_SUCCESS)
+			break;
 	}
 
 	firmimg_close(firmimg);
