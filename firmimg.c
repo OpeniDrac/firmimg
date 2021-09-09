@@ -191,6 +191,7 @@ static int do_info(const char *path)
 	firmimg_t *firmimg;
 	uint32_t crc32_checksum;
 	int i;
+	firmimg_image_t image;
 
 	firmimg = firmimg_open(path, "r");
 	if(firmimg == NULL)
@@ -226,7 +227,7 @@ static int do_info(const char *path)
 		(strcmp((char*)firmimg->header.header.platform_id, IDRAC6_SVB_PLATFORM_ID) == 0) ? IDRAC6_SVB_IDENTIFIER : (strcmp((char*)firmimg->header.header.platform_id, IDRAC6_WHOVILLE_PLATFORM_ID) == 0) ? IDRAC6_WHOVILLE_IDENTIFIER : "Unknown", firmimg->header.header.platform_id);
 
 	for(i = 0; i < firmimg->header.header.num_of_image; i++) {
-		firmimg_image_t image = firmimg->header.images[i];
+		image = firmimg->header.images[i];
 		crc32_checksum = fcrc32(firmimg->fp, image.offset, image.size);
 
 		printf(
