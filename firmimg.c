@@ -6,6 +6,8 @@
 #include <string.h>
 #include <fcntl.h>
 
+#define LEN(x) sizeof(x) / sizeof(x[0])
+
 static uint32_t fcrc32(FILE *fp, const long int offset, const long int length)
 {
 	uint32_t crc32_checksum;
@@ -157,8 +159,6 @@ static int firmimg_add(firmimg_t *firmimg, const char* path)
 
 static int firmimg_close(firmimg_t *firmimg)
 {
-	/*uint32_t crc32_checksum;
-	int i;*/
 	int ret;
 
 	if(!firmimg)
@@ -166,13 +166,13 @@ static int firmimg_close(firmimg_t *firmimg)
 
 	if((fcntl(fileno(firmimg->fp), F_GETFL) & O_ACCMODE) == O_RDWR)
 	{
-		/*crc32_checksum = crc32(0L, Z_NULL, 0);
-		crc32(crc32_checksum, (Bytef*)(&firmimg->header.header), sizeof(firmimg_header_t));
+		Bytef header_buffer[FIRMIMG_HEADER_SIZE] = { 0 };
 
-		for(i = 0; i < firmimg->header.header.num_of_image; i++)
-			crc32(crc32_checksum, (Bytef*)(&firmimg->header.images[i]), sizeof(firmimg_image_t));
+		memcpy(header_buffer, &firmimg->header.header, sizeof(firmimg_header_t));
+		memcpy(header_buffer + sizeof(firmimg_header_t), &firmimg->header.images,
+						LEN(firmimg->header.images));
 
-		firmimg->header.header.crc32 = crc32_checksum;*/
+		firmimg->header.header.crc32 = crc32(0L, header_buffer + 4, sizeof(header_buffer) - 4);
 
 		fseek(firmimg->fp, 0L, SEEK_SET);
 		fwrite(&firmimg->header.header, sizeof(char), sizeof(firmimg_header_t), firmimg->fp);
