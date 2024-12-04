@@ -367,10 +367,16 @@ static int do_extract(const char *path)
 	return EXIT_SUCCESS;
 }
 
-static int do_compact(const char* path, const firmimg_version_t version, const uint8_t *uboot_ver, uint8_t *platform_id, uint8_t num_of_image, char **path_images)
+static int do_compact(
+	const char* path,
+	const firmimg_version_t version,
+	const uint8_t *uboot_ver,
+	uint8_t *platform_id,
+	char **path_images)
 {
 	firmimg_t *firmimg;
-	int i, ret;
+	int ret;
+	char *path_image;
 
 	firmimg = firmimg_open(path, "w+");
 	if(firmimg == NULL)
@@ -385,10 +391,10 @@ static int do_compact(const char* path, const firmimg_version_t version, const u
 	memcpy(header->uboot_ver, uboot_ver, sizeof(header->uboot_ver));
 	memcpy(header->platform_id, platform_id, sizeof(header->platform_id));
 
-	for(i = 0; i < num_of_image; i++) {
-		printf("Add %s to firmware image...", path_images[i]);
+	for(path_image = *path_images; path_image != NULL; path_images++) {
+		printf("Add %s to firmware image...", path_image);
 
-		ret = firmimg_add(firmimg, path_images[i]);
+		ret = firmimg_add(firmimg, path_image);
 		if(ret < 0)
 			perror("Failed to add image");
 
@@ -447,7 +453,6 @@ int main(int argc, char *argv[])
 {
 	char *path_file = NULL;
 	char *path_images[FIRMIMG_MAX_IMAGES];
-	uint8_t num_of_image;
 	enum action_t action = NONE;
 	firmimg_version_t version;
 	uint8_t uboot_ver[8] = {0};
@@ -469,7 +474,6 @@ int main(int argc, char *argv[])
 	};
 
 	path_file = NULL;
-	num_of_image = 0;
 
 	for(;;)
 	{
@@ -543,7 +547,6 @@ int main(int argc, char *argv[])
 		while(++optind < argc);
 
 		path_images[i] = NULL;
-		num_of_image = i;
 	}
 
 	switch(action)
@@ -558,7 +561,7 @@ int main(int argc, char *argv[])
 			return do_extract(path_file);
 			break;
 		case COMPACT:
-			return do_compact(path_file, version, uboot_ver, plateform_id, num_of_image, path_images);
+			return do_compact(path_file, version, uboot_ver, plateform_id, path_images);
 			break;
 	}
 
