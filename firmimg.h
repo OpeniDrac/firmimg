@@ -52,13 +52,13 @@ typedef struct firmimg_image
 #define IDRAC8_EXTENSION "d8"
 #define IDRAC9_EXTENSION "d9"
 
-enum idrac_family_t
+typedef enum idrac_family
 {
 	IDRAC6 = 6,
 	IDRAC7 = 7,
 	IDRAC8 = 8,
 	IDRAC9 = 9
-};
+} idrac_family_t;
 
 typedef struct firmimg_header_file
 {
@@ -69,7 +69,7 @@ typedef struct firmimg_header_file
 typedef struct firmimg
 {
 	FILE *fp;
-	enum idrac_family_t idrac_family;
+	idrac_family_t idrac_family;
 	firmimg_header_file_t header;
 } firmimg_t;
 

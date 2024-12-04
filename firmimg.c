@@ -42,7 +42,7 @@ static uint32_t fcrc32(FILE *fp, const long int offset, const long int length)
 	return crc32_checksum;
 }
 
-static enum idrac_family_t get_idrac_family(const char *path)
+static idrac_family_t get_idrac_family(const char *path)
 {
 	if(path == NULL)
 		return -1;
