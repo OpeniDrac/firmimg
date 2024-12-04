@@ -2,7 +2,7 @@ CC = gcc
 LDFLAGS = -O0 -Wall -Wextra $(shell pkg-config --libs -cflags zlib)
 
 firmimg: firmimg.c
-	$(CC) $(LDFLAGS) firmimg.c -o firmimg
+	$(CC) firmimg.c -o firmimg $(LDFLAGS)
 
 clean:
 	rm -rvf firmimg
