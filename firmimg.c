@@ -168,16 +168,18 @@ static int firmimg_close(firmimg_t *firmimg)
 	{
 		Bytef header_buffer[FIRMIMG_HEADER_SIZE] = { 0 };
 
-		memcpy(header_buffer, &firmimg->header.header, sizeof(firmimg_header_t));
+		const firmimg_header_t *header = &firmimg->header.header;
+
+		memcpy(header_buffer, header, sizeof(firmimg_header_t));
 		memcpy(header_buffer + sizeof(firmimg_header_t), &firmimg->header.images,
 						LEN(firmimg->header.images));
 
-		firmimg->header.header.crc32 = crc32(0L, header_buffer + sizeof(firmimg->header.header.crc32),
-																					sizeof(header_buffer) - sizeof(firmimg->header.header.crc32));
+		firmimg->header.header.crc32 = crc32(0L, header_buffer + sizeof(header->crc32),
+																		sizeof(header_buffer) - sizeof(header->crc32));
 
 		fseek(firmimg->fp, 0L, SEEK_SET);
-		fwrite(&firmimg->header.header, sizeof(char), sizeof(firmimg_header_t), firmimg->fp);
-		fwrite(firmimg->header.images, sizeof(*firmimg->header.images), firmimg->header.header.num_of_image, firmimg->fp);
+		fwrite(header, sizeof(char), sizeof(firmimg_header_t), firmimg->fp);
+		fwrite(firmimg->header.images, sizeof(*firmimg->header.images), header->num_of_image, firmimg->fp);
 	}
 
 	ret = fclose(firmimg->fp);
@@ -185,6 +187,16 @@ static int firmimg_close(firmimg_t *firmimg)
 	free(firmimg);
 
 	return ret;
+}
+
+static const char* get_platform_id(const firmimg_header_t* header)
+{
+	if(strcmp((char*)header->platform_id, IDRAC6_SVB_PLATFORM_ID) == 0)
+		return IDRAC6_SVB_IDENTIFIER;
+	else if(strcmp((char*)header->platform_id, IDRAC6_WHOVILLE_PLATFORM_ID) == 0)
+		return IDRAC6_WHOVILLE_IDENTIFIER;
+	else
+		return "Unknown";
 }
 
 static int do_info(const char *path)
@@ -204,8 +216,10 @@ static int do_info(const char *path)
 		return EXIT_FAILURE;
 	}
 
-	crc32_checksum = fcrc32(firmimg->fp, sizeof(firmimg->header.header.crc32),
-													FIRMIMG_HEADER_SIZE - sizeof(firmimg->header.header.crc32));
+	const firmimg_header_t *header = &firmimg->header.header;
+
+	crc32_checksum = fcrc32(firmimg->fp, sizeof(header->crc32),
+												FIRMIMG_HEADER_SIZE - sizeof(header->crc32));
 
 	printf(
 		"Dell Remote Access Controller family : %d\n"
@@ -218,17 +232,16 @@ static int do_info(const char *path)
 		"AVCT U-Boot version: %d.%d.%d\n"
 		"Platform ID: %s (%s)\n",
 		firmimg->idrac_family,
-		firmimg->header.header.crc32, crc32_checksum,
-		firmimg->header.header.header_version,
-		firmimg->header.header.num_of_image,
-		firmimg->header.header.version.version, firmimg->header.header.version.sub_version, firmimg->header.header.version.build,
-		firmimg->header.header.image_size,
-		firmimg->header.header.uboot_ver[0], firmimg->header.header.uboot_ver[1], firmimg->header.header.uboot_ver[2],
-		firmimg->header.header.uboot_ver[4], firmimg->header.header.uboot_ver[5], firmimg->header.header.uboot_ver[6],
+		header->crc32, crc32_checksum,
+		header->header_version,
+		header->num_of_image,
+		header->version.version, header->version.sub_version, header->version.build,
+		header->image_size,
+		header->uboot_ver[0], header->uboot_ver[1], header->uboot_ver[2],
+		header->uboot_ver[4], header->uboot_ver[5], header->uboot_ver[6],
+		get_platform_id(header), header->platform_id);
 
-		(strcmp((char*)firmimg->header.header.platform_id, IDRAC6_SVB_PLATFORM_ID) == 0) ? IDRAC6_SVB_IDENTIFIER : (strcmp((char*)firmimg->header.header.platform_id, IDRAC6_WHOVILLE_PLATFORM_ID) == 0) ? IDRAC6_WHOVILLE_IDENTIFIER : "Unknown", firmimg->header.header.platform_id);
-
-	for(i = 0; i < firmimg->header.header.num_of_image; i++) {
+	for(i = 0; i < header->num_of_image; i++) {
 		image = firmimg->header.images[i];
 		crc32_checksum = fcrc32(firmimg->fp, image.offset, image.size);
 
@@ -331,17 +344,19 @@ static int do_extract(const char *path)
 		return EXIT_FAILURE;
 	}
 
-	crc32_checksum = fcrc32(firmimg->fp, sizeof(firmimg->header.header.crc32),
-													FIRMIMG_HEADER_SIZE - sizeof(firmimg->header.header.crc32));
-	if(crc32_checksum != firmimg->header.header.crc32) {
+	const firmimg_header_t *header = &firmimg->header.header;
+
+	crc32_checksum = fcrc32(firmimg->fp, sizeof(header->crc32),
+													FIRMIMG_HEADER_SIZE - sizeof(header->crc32));
+	if(crc32_checksum != header->crc32) {
 		puts("Invalid header checksum");
 		firmimg_close(firmimg);
 
 		return EXIT_FAILURE;
 	}
 
-	printf("Found %d images !\n", firmimg->header.header.num_of_image);
-	for(i = 0; i < firmimg->header.header.num_of_image; i++) {
+	printf("Found %d images !\n", header->num_of_image);
+	for(i = 0; i < header->num_of_image; i++) {
 		ret = extract_image(firmimg, i, firmimg->header.images[i]);
 		if(ret != EXIT_SUCCESS)
 			break;
@@ -361,12 +376,14 @@ static int do_compact(const char* path, const firmimg_version_t version, const u
 	if(firmimg == NULL)
 		return EXIT_FAILURE;
 
-	firmimg->header.header.header_version = FIRMIMG_HEADER_VERSION;
-	firmimg->header.header.image_type = FIRMIMG_IMAGE_iBMC;
-	firmimg->header.header.version = version;
-	firmimg->header.header.image_size = 56835584; // For test
-	memcpy(firmimg->header.header.uboot_ver, uboot_ver, sizeof(firmimg->header.header.uboot_ver));
-	memcpy(firmimg->header.header.platform_id, platform_id, sizeof(firmimg->header.header.platform_id));
+	firmimg_header_t *header = &firmimg->header.header;
+
+	header->header_version = FIRMIMG_HEADER_VERSION;
+	header->image_type = FIRMIMG_IMAGE_iBMC;
+	header->version = version;
+	header->image_size = 56835584; // For test
+	memcpy(header->uboot_ver, uboot_ver, sizeof(header->uboot_ver));
+	memcpy(header->platform_id, platform_id, sizeof(header->platform_id));
 
 	for(i = 0; i < num_of_image; i++) {
 		printf("Add %s to firmware image...", path_images[i]);
