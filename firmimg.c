@@ -504,9 +504,9 @@ int main(int argc, char *argv[])
 					exit(EXIT_SUCCESS);
 				}
 				else if(strcmp(optarg, IDRAC6_WHOVILLE_PLATFORM_ID) == 0)
-					memcpy(plateform_id, IDRAC6_WHOVILLE_PLATFORM_ID, strlen(IDRAC6_WHOVILLE_PLATFORM_ID) + 1);
+					memcpy(plateform_id, IDRAC6_WHOVILLE_PLATFORM_ID, strlen(IDRAC6_WHOVILLE_PLATFORM_ID));
 				else if(strcmp(optarg, IDRAC6_SVB_PLATFORM_ID) == 0)
-					memcpy(plateform_id, IDRAC6_SVB_PLATFORM_ID, strlen(IDRAC6_SVB_PLATFORM_ID) + 1);
+					memcpy(plateform_id, IDRAC6_SVB_PLATFORM_ID, strlen(IDRAC6_SVB_PLATFORM_ID));
 				break;
 			}
 			case 'h':
