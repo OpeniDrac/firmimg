@@ -8,27 +8,20 @@
 
 #define LEN(x) sizeof(x) / sizeof(x[0])
 
-static uint32_t fcrc32(FILE *fp, const long int offset, const long int length)
+static uint32_t fcrc32(FILE *fp, const long int offset, const size_t length)
 {
 	uint32_t crc32_checksum;
-	long int left_length;
-	size_t read_size;
+	size_t left_length, read_size;
 	Bytef buffer[512];
 
 	fseek(fp, offset, SEEK_SET);
 
 	crc32_checksum = crc32(0L, Z_NULL, 0);
-	if(length < 0)
-	{
-		fseek(fp, offset, SEEK_END);
-		left_length = ftell(fp);
-	}
-	else
-		left_length = length;
+	left_length = length;
 
 	while(left_length > 0)
 	{
-		read_size = (left_length > (long int)sizeof(buffer)) ? (long int)sizeof(buffer) : left_length;
+		read_size = left_length > sizeof(buffer) ? sizeof(buffer) : left_length;
 		if(fread(buffer, sizeof(Bytef), read_size, fp) != read_size)
 		{
 			perror("Failed to read file for crc32");
@@ -175,7 +168,7 @@ static int firmimg_close(firmimg_t *firmimg)
 						LEN(firmimg->header.images));
 
 		firmimg->header.header.crc32 = crc32(0L, header_buffer + sizeof(header->crc32),
-																		sizeof(header_buffer) - sizeof(header->crc32));
+										sizeof(header_buffer) - sizeof(header->crc32));
 
 		fseek(firmimg->fp, 0L, SEEK_SET);
 		fwrite(header, sizeof(char), sizeof(firmimg_header_t), firmimg->fp);
@@ -219,7 +212,7 @@ static int do_info(const char *path)
 	const firmimg_header_t *header = &firmimg->header.header;
 
 	crc32_checksum = fcrc32(firmimg->fp, sizeof(header->crc32),
-												FIRMIMG_HEADER_SIZE - sizeof(header->crc32));
+							FIRMIMG_HEADER_SIZE - sizeof(header->crc32));
 
 	printf(
 		"Dell Remote Access Controller family : %d\n"
@@ -347,7 +340,7 @@ static int do_extract(const char *path)
 	const firmimg_header_t *header = &firmimg->header.header;
 
 	crc32_checksum = fcrc32(firmimg->fp, sizeof(header->crc32),
-													FIRMIMG_HEADER_SIZE - sizeof(header->crc32));
+							FIRMIMG_HEADER_SIZE - sizeof(header->crc32));
 	if(crc32_checksum != header->crc32) {
 		puts("Invalid header checksum");
 		firmimg_close(firmimg);
