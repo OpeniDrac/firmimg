@@ -6,6 +6,10 @@
 #include <string.h>
 #include <fcntl.h>
 
+#define FIRMIMG firmimg_file->firmimg
+#define FIRMIMG_HEADER FIRMIMG.header
+#define GET_IMAGE(index) &FIRMIMG.images[index]
+
 #define LEN(x) sizeof(x) / sizeof(x[0])
 
 static uint32_t fcrc32(FILE *fp, const long int offset, const size_t length)
@@ -59,125 +63,123 @@ static idrac_family_t get_idrac_family(const char *path)
 		return 0;
 }
 
-static firmimg_t *firmimg_open(const char *path, const char *mode)
+static firmimg_file_t *firmimg_open(const char *path, const char *mode)
 {
-	firmimg_t *firmimg = malloc(sizeof(firmimg_t));
+	firmimg_file_t *firmimg_file;
 
-	firmimg->idrac_family = get_idrac_family(path);
-	if(firmimg->idrac_family <= 0 || firmimg->idrac_family >= IDRAC9) {
+	firmimg_file = malloc(sizeof(firmimg_file_t));
+
+	firmimg_file->idrac_family = get_idrac_family(path);
+	if(firmimg_file->idrac_family <= 0 || firmimg_file->idrac_family >= IDRAC9) {
 		puts("Invalid or unsupported idrac family");
-		free(firmimg);
+		free(firmimg_file);
 		
 		return NULL;
 	}
 
-	firmimg->fp = fopen(path, mode);
-	if(!firmimg->fp) {
+	firmimg_file->fp = fopen(path, mode);
+	if(!firmimg_file->fp) {
 		perror("Failed to open firmimg");
-		free(firmimg);
+		free(firmimg_file);
 		
 		return NULL;
 	}
 
-	firmimg->header.header.num_of_image = 0;
+	FIRMIMG_HEADER.num_of_image = 0;
 
-	return firmimg;
+	return firmimg_file;
 }
 
-static int firmimg_read_header(firmimg_t *firmimg)
+static int firmimg_read_header(firmimg_file_t *firmimg_file)
 {
 	size_t read_len;
 
-	read_len = fread(&firmimg->header.header, sizeof(uint8_t),
-										sizeof(firmimg_header_file_t), firmimg->fp);
+	read_len = fread(&firmimg_file->firmimg.header, sizeof(uint8_t),
+								sizeof(firmimg_t), firmimg_file->fp);
 
-	if(read_len != sizeof(firmimg_header_file_t))
+	if(read_len != sizeof(firmimg_t))
 		return -1;
 
 	return 0;
 }
 
-static int firmimg_add(firmimg_t *firmimg, const char* path)
+static int firmimg_add(firmimg_file_t *firmimg_file, const char* path)
 {
-	FILE *fp_image;
+	FILE *fp;
 	int index;
 	uint32_t crc32_checksum;
 	size_t read_size;
 	Bytef buffer[512];
+	firmimg_image_t *image;
 
-	if(!firmimg)
+	if(!firmimg_file)
 		return -1;
 
-	if(firmimg->header.header.num_of_image >= FIRMIMG_MAX_IMAGES)
+	if(FIRMIMG_HEADER.num_of_image >= FIRMIMG_MAX_IMAGES)
 		return -1;
 
-	fp_image = fopen(path, "r");
-	if(!fp_image)
+	fp = fopen(path, "r");
+	if(!fp)
 		return -1;
 
-	index = firmimg->header.header.num_of_image;
-	firmimg->header.header.num_of_image++;
+	index = FIRMIMG_HEADER.num_of_image;
+	FIRMIMG_HEADER.num_of_image++;
+
+	image = GET_IMAGE(index);
 
 	if(index > 0)
-		firmimg->header.images[index].offset = firmimg->header.images[index - 1].offset + firmimg->header.images[index - 1].size;
+		image->offset = (image - 1)->offset + (image - 1)->size;
 	else
-		firmimg->header.images[index].offset = FIRMIMG_HEADER_SIZE;
+		image->offset = FIRMIMG_HEADER_SIZE;
 
-	fseek(fp_image, 0L, SEEK_END);
-	firmimg->header.images[index].size = ftell(fp_image);
-	fseek(fp_image, 0L, SEEK_SET);
-
-	fseek(firmimg->fp, firmimg->header.images[index].offset, SEEK_SET);
+	fseek(firmimg_file->fp, image->offset, SEEK_SET);
 
 	crc32_checksum = crc32(0L, Z_NULL, 0);
 
-	while((read_size = fread(buffer, sizeof(Bytef), sizeof(buffer), fp_image)) > 0)
+	while((read_size = fread(buffer, sizeof(Bytef), sizeof(buffer), fp)) > 0)
 	{
-		if(fwrite(buffer, sizeof(Bytef), read_size, firmimg->fp) != read_size)
+		if(fwrite(buffer, sizeof(Bytef), read_size, firmimg_file->fp) != read_size)
 		{
 			perror("Failed to write file for crc32");
-			fclose(fp_image);
+			fclose(fp);
 			return -1;
 		}
 
 		crc32_checksum = crc32(crc32_checksum, buffer, read_size);
 	}
 
-	firmimg->header.images[index].crc32 = crc32_checksum;
+	image->crc32 = crc32_checksum;
 
-	fclose(fp_image);
+	fclose(fp);
 
 	return index;
 }
 
-static int firmimg_close(firmimg_t *firmimg)
+static int firmimg_close(firmimg_file_t *firmimg_file)
 {
+	Bytef header_buffer[FIRMIMG_HEADER_SIZE];
 	int ret;
 
-	if(!firmimg)
+	if(!firmimg_file)
 		return -1;
 
-	if((fcntl(fileno(firmimg->fp), F_GETFL) & O_ACCMODE) == O_RDWR)
+	if((fcntl(fileno(firmimg_file->fp), F_GETFL) & O_ACCMODE) == O_RDWR)
 	{
-		Bytef header_buffer[FIRMIMG_HEADER_SIZE] = { 0 };
+		memcpy(header_buffer, &FIRMIMG_HEADER, sizeof(firmimg_header_t));
+		memcpy(header_buffer + sizeof(firmimg_header_t), &FIRMIMG.images,
+						LEN(FIRMIMG.images));
 
-		const firmimg_header_t *header = &firmimg->header.header;
+		FIRMIMG_HEADER.crc32 = crc32(0L, header_buffer + sizeof(FIRMIMG_HEADER.crc32),
+										sizeof(header_buffer) - sizeof(FIRMIMG_HEADER.crc32));
 
-		memcpy(header_buffer, header, sizeof(firmimg_header_t));
-		memcpy(header_buffer + sizeof(firmimg_header_t), &firmimg->header.images,
-						LEN(firmimg->header.images));
-
-		firmimg->header.header.crc32 = crc32(0L, header_buffer + sizeof(header->crc32),
-										sizeof(header_buffer) - sizeof(header->crc32));
-
-		fseek(firmimg->fp, 0L, SEEK_SET);
-		fwrite(header, sizeof(char), sizeof(firmimg_header_t), firmimg->fp);
-		fwrite(firmimg->header.images, sizeof(*firmimg->header.images), header->num_of_image, firmimg->fp);
+		fseek(firmimg_file->fp, 0L, SEEK_SET);
+		fwrite(&FIRMIMG_HEADER, sizeof(char), sizeof(firmimg_header_t), firmimg_file->fp);
+		fwrite(FIRMIMG.images, sizeof(*FIRMIMG.images), FIRMIMG_HEADER.num_of_image, firmimg_file->fp);
 	}
 
-	ret = fclose(firmimg->fp);
+	ret = fclose(firmimg_file->fp);
 
-	free(firmimg);
+	free(firmimg_file);
 
 	return ret;
 }
@@ -194,25 +196,24 @@ static const char* get_platform_id(const firmimg_header_t* header)
 
 static int do_info(const char *path)
 {
-	firmimg_t *firmimg;
+	firmimg_file_t *firmimg_file;
 	uint32_t crc32_checksum;
 	int i;
-	firmimg_image_t image;
+	firmimg_image_t *image;
 
-	firmimg = firmimg_open(path, "r");
-	if(firmimg == NULL)
+	firmimg_file = firmimg_open(path, "r");
+	if(firmimg_file == NULL)
 		return EXIT_FAILURE;
 
-	if(firmimg_read_header(firmimg)) {
+	if(firmimg_read_header(firmimg_file)) {
 		puts("Failed to read header");
+		firmimg_close(firmimg_file);
 
 		return EXIT_FAILURE;
 	}
 
-	const firmimg_header_t *header = &firmimg->header.header;
-
-	crc32_checksum = fcrc32(firmimg->fp, sizeof(header->crc32),
-							FIRMIMG_HEADER_SIZE - sizeof(header->crc32));
+	crc32_checksum = fcrc32(firmimg_file->fp, sizeof(FIRMIMG_HEADER.crc32),
+									FIRMIMG_HEADER_SIZE - sizeof(FIRMIMG_HEADER.crc32));
 
 	printf(
 		"Dell Remote Access Controller family : %d\n"
@@ -224,19 +225,19 @@ static int do_info(const char *path)
 		"U-Boot version: %d.%d.%d\n"
 		"AVCT U-Boot version: %d.%d.%d\n"
 		"Platform ID: %s (%s)\n",
-		firmimg->idrac_family,
-		header->crc32, crc32_checksum,
-		header->header_version,
-		header->num_of_image,
-		header->version.version, header->version.sub_version, header->version.build,
-		header->image_size,
-		header->uboot_ver[0], header->uboot_ver[1], header->uboot_ver[2],
-		header->uboot_ver[4], header->uboot_ver[5], header->uboot_ver[6],
-		get_platform_id(header), header->platform_id);
+		firmimg_file->idrac_family,
+		FIRMIMG_HEADER.crc32, crc32_checksum,
+		FIRMIMG_HEADER.header_version,
+		FIRMIMG_HEADER.num_of_image,
+		FIRMIMG_HEADER.version.version, FIRMIMG_HEADER.version.sub_version, FIRMIMG_HEADER.version.build,
+		FIRMIMG_HEADER.image_size,
+		FIRMIMG_HEADER.uboot_ver[0], FIRMIMG_HEADER.uboot_ver[1], FIRMIMG_HEADER.uboot_ver[2],
+		FIRMIMG_HEADER.uboot_ver[4], FIRMIMG_HEADER.uboot_ver[5], FIRMIMG_HEADER.uboot_ver[6],
+		get_platform_id(&FIRMIMG_HEADER), FIRMIMG_HEADER.platform_id);
 
-	for(i = 0; i < header->num_of_image; i++) {
-		image = firmimg->header.images[i];
-		crc32_checksum = fcrc32(firmimg->fp, image.offset, image.size);
+	for(i = 0; i < FIRMIMG_HEADER.num_of_image; i++) {
+		image = GET_IMAGE(i);
+		crc32_checksum = fcrc32(firmimg_file->fp, image->offset, image->size);
 
 		printf(
 			"Image %d:\n"
@@ -244,56 +245,45 @@ static int do_info(const char *path)
 			"Size: %d bytes\n"
 			"Checksum: %x (%x)\n",
 			i,
-			image.offset,
-			image.size,
-			image.crc32, crc32_checksum);
+			image->offset,
+			image->size,
+			image->crc32, crc32_checksum);
 	}
 
-	firmimg_close(firmimg);
+	firmimg_close(firmimg_file);
 
 	return EXIT_SUCCESS;
 }
 
-static int extract_image(firmimg_t *firmimg, uint8_t i, firmimg_image_t image)
+static int extract_image(firmimg_file_t *firmimg_file, firmimg_image_t *image, const char *path)
 {
 	uint32_t crc32_checksum;
-	char image_path[22];
-	FILE *image_fp;
+	FILE *fp;
 	size_t left_length, read_size;
 	Bytef buffer[512];
 
-	crc32_checksum = fcrc32(firmimg->fp, image.offset, image.size);
-	if(image.crc32 != crc32_checksum) {
-		puts("Invalid image checksum");
-
-		return EXIT_FAILURE;
-	}
-
-	printf("Image %d: ", i);
-
-	snprintf(image_path, sizeof(image_path), "image_%hhu.dat", i);
-	image_fp = fopen(image_path, "w+");
-	if(image_fp == NULL) {
+	fp = fopen(path, "w+");
+	if(fp == NULL) {
 		perror("Failed to extract image file");
 		
 		return EXIT_FAILURE;
 	}
 
-	fseek(firmimg->fp, image.offset, SEEK_SET);
+	fseek(firmimg_file->fp, image->offset, SEEK_SET);
 
-	left_length = image.size;
+	left_length = image->size;
 	while(left_length > 0) {
-		read_size = (left_length > sizeof(buffer)) ? sizeof(buffer) : left_length;
-		if(fread(buffer, sizeof(Bytef), read_size, firmimg->fp) != read_size) {
+		read_size = left_length > sizeof(buffer) ? sizeof(buffer) : left_length;
+		if(fread(buffer, sizeof(Bytef), read_size, firmimg_file->fp) != read_size) {
 			perror("Failed to read file for extraction");
-			fclose(image_fp);
+			fclose(fp);
 			
 			return EXIT_FAILURE;
 		}
 
-		if(fwrite(buffer, sizeof(Bytef), read_size, image_fp) != read_size) {
+		if(fwrite(buffer, sizeof(Bytef), read_size, fp) != read_size) {
 			perror("Failed to write file for extraction");
-			fclose(image_fp);
+			fclose(fp);
 			
 			return EXIT_FAILURE;
 		}
@@ -301,63 +291,62 @@ static int extract_image(firmimg_t *firmimg, uint8_t i, firmimg_image_t image)
 		left_length -= read_size;
 	}
 
-	puts("Extracted !");
+	printf("Extracted !");
 
-	printf("Image %d: ", i);
-	crc32_checksum = fcrc32(image_fp, 0, image.size);
-	if(crc32_checksum == image.crc32)
-		puts("Valid file checksum !");
+	crc32_checksum = fcrc32(fp, 0, image->size);
+
+	if(crc32_checksum == image->crc32)
+		puts(" (Valid checksum)");
 	else
-	{
-		puts("Invalid file checksum !");
-		fclose(image_fp);
+		puts(" (Invalid checksum)");
 
-		return EXIT_FAILURE;
-	}
+	fclose(fp);
 
-	fclose(image_fp);
-
-	return EXIT_SUCCESS;
+	return crc32_checksum == image->crc32 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
 static int do_extract(const char *path)
 {
-	firmimg_t *firmimg;
+	firmimg_file_t *firmimg_file;
 	uint32_t crc32_checksum;
-	uint8_t i;
+	int i;
 	int ret;
+	char image_path[22];
 
-	firmimg = firmimg_open(path, "r");
-	if(firmimg == NULL)
+	ret = EXIT_SUCCESS;
+
+	firmimg_file = firmimg_open(path, "r");
+	if(firmimg_file == NULL)
 		return EXIT_FAILURE;
 
-	if(firmimg_read_header(firmimg)) {
+	if(firmimg_read_header(firmimg_file)) {
 		puts("Failed to read header");
 
 		return EXIT_FAILURE;
 	}
 
-	const firmimg_header_t *header = &firmimg->header.header;
-
-	crc32_checksum = fcrc32(firmimg->fp, sizeof(header->crc32),
-							FIRMIMG_HEADER_SIZE - sizeof(header->crc32));
-	if(crc32_checksum != header->crc32) {
+	crc32_checksum = fcrc32(firmimg_file->fp, sizeof(FIRMIMG_HEADER.crc32),
+							FIRMIMG_HEADER_SIZE - sizeof(FIRMIMG_HEADER.crc32));
+	if(crc32_checksum != FIRMIMG_HEADER.crc32) {
 		puts("Invalid header checksum");
-		firmimg_close(firmimg);
+		firmimg_close(firmimg_file);
 
 		return EXIT_FAILURE;
 	}
 
-	printf("Found %d images !\n", header->num_of_image);
-	for(i = 0; i < header->num_of_image; i++) {
-		ret = extract_image(firmimg, i, firmimg->header.images[i]);
+	printf("Found %d images !\n", FIRMIMG_HEADER.num_of_image);
+	for(i = 0; i < FIRMIMG_HEADER.num_of_image; i++) {
+		printf("Image %d: ",  i);
+		snprintf(image_path, sizeof(image_path), "image_%d.dat", i);
+
+		ret = extract_image(firmimg_file, GET_IMAGE(i), image_path);
 		if(ret != EXIT_SUCCESS)
 			break;
 	}
 
-	firmimg_close(firmimg);
+	firmimg_close(firmimg_file);
 	
-	return EXIT_SUCCESS;
+	return ret;
 }
 
 static int do_compact(
@@ -367,34 +356,32 @@ static int do_compact(
 	uint8_t *platform_id,
 	char **path_images)
 {
-	firmimg_t *firmimg;
+	firmimg_file_t *firmimg_file;
 	int ret;
 	char *path_image;
 
-	firmimg = firmimg_open(path, "w+");
-	if(firmimg == NULL)
+	firmimg_file = firmimg_open(path, "w+");
+	if(firmimg_file == NULL)
 		return EXIT_FAILURE;
 
-	firmimg_header_t *header = &firmimg->header.header;
-
-	header->header_version = FIRMIMG_HEADER_VERSION;
-	header->image_type = FIRMIMG_IMAGE_iBMC;
-	header->version = version;
-	header->image_size = 56835584; // For test
-	memcpy(header->uboot_ver, uboot_ver, sizeof(header->uboot_ver));
-	memcpy(header->platform_id, platform_id, sizeof(header->platform_id));
+	FIRMIMG_HEADER.header_version = FIRMIMG_HEADER_VERSION;
+	FIRMIMG_HEADER.image_type = FIRMIMG_IMAGE_iBMC;
+	FIRMIMG_HEADER.version = version;
+	FIRMIMG_HEADER.image_size = 56835584;
+	memcpy(FIRMIMG_HEADER.uboot_ver, uboot_ver, sizeof(FIRMIMG_HEADER.uboot_ver));
+	memcpy(FIRMIMG_HEADER.platform_id, platform_id, sizeof(FIRMIMG_HEADER.platform_id));
 
 	for(path_image = *path_images; path_image != NULL; path_images++) {
 		printf("Add %s to firmware image...", path_image);
 
-		ret = firmimg_add(firmimg, path_image);
+		ret = firmimg_add(firmimg_file, path_image);
 		if(ret < 0)
 			perror("Failed to add image");
 
 		puts(" OK !");
 	}
 
-	firmimg_close(firmimg);
+	firmimg_close(firmimg_file);
 
 	return EXIT_SUCCESS;
 }

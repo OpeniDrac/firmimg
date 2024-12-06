@@ -60,17 +60,17 @@ typedef enum idrac_family
 	IDRAC9 = 9
 } idrac_family_t;
 
-typedef struct firmimg_header_file
+typedef struct firmimg
 {
 	firmimg_header_t header;
 	firmimg_image_t images[FIRMIMG_MAX_IMAGES];
-} firmimg_header_file_t;
+} firmimg_t;
 
-typedef struct firmimg
+typedef struct firmimg_file
 {
 	FILE *fp;
 	idrac_family_t idrac_family;
-	firmimg_header_file_t header;
-} firmimg_t;
+	firmimg_t firmimg;
+} firmimg_file_t;
 
 #endif
