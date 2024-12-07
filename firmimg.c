@@ -85,7 +85,7 @@ static firmimg_file_t *firmimg_open(const char *path, const char *mode)
 		return NULL;
 	}
 
-	FIRMIMG_HEADER.num_of_image = 0;
+	FIRMIMG_HEADER.image_size = FIRMIMG_HEADER_SIZE;
 
 	return firmimg_file;
 }
@@ -106,11 +106,13 @@ static int firmimg_read_header(firmimg_file_t *firmimg_file)
 static int firmimg_add(firmimg_file_t *firmimg_file, const char* path)
 {
 	FILE *fp;
+	struct stat st;
 	int index;
 	uint32_t crc32_checksum;
-	size_t read_size;
+	size_t read_size, padding;
 	Bytef buffer[512];
 	firmimg_image_t *image;
+	char padding_buffer[512];
 
 	if(!firmimg_file)
 		return -1;
@@ -122,15 +124,26 @@ static int firmimg_add(firmimg_file_t *firmimg_file, const char* path)
 	if(!fp)
 		return -1;
 
+	stat(path, &st);
+
 	index = FIRMIMG_HEADER.num_of_image;
 	FIRMIMG_HEADER.num_of_image++;
 
 	image = GET_IMAGE(index);
 
-	if(index > 0)
-		image->offset = (image - 1)->offset + (image - 1)->size;
-	else
-		image->offset = FIRMIMG_HEADER_SIZE;
+	image->offset = FIRMIMG_HEADER.image_size;
+	image->size = st.st_size;
+
+	padding = image->size % 512 ? 512 - (image->size % 512) : 0;
+	memset(padding_buffer, 0, padding);
+
+	if(index != 0 && fwrite(padding_buffer, sizeof(char), padding, firmimg_file->fp) != padding)
+	{
+		perror("Failed to write image padding");
+		fclose(fp);
+
+		return -1;
+	}
 
 	fseek(firmimg_file->fp, image->offset, SEEK_SET);
 
@@ -152,6 +165,8 @@ static int firmimg_add(firmimg_file_t *firmimg_file, const char* path)
 
 	fclose(fp);
 
+	FIRMIMG_HEADER.image_size += image->size + padding;
+
 	return index;
 }
 
@@ -165,14 +180,11 @@ static int firmimg_close(firmimg_file_t *firmimg_file)
 
 	if((fcntl(fileno(firmimg_file->fp), F_GETFL) & O_ACCMODE) == O_RDWR)
 	{
-		memcpy(header_buffer, &FIRMIMG_HEADER, sizeof(firmimg_header_t));
-		memcpy(header_buffer + sizeof(firmimg_header_t), &FIRMIMG.images,
-						LEN(FIRMIMG.images));
-
-		FIRMIMG_HEADER.crc32 = crc32(0L, header_buffer + sizeof(FIRMIMG_HEADER.crc32),
-										sizeof(header_buffer) - sizeof(FIRMIMG_HEADER.crc32));
+		FIRMIMG_HEADER.crc32 = crc32(0L, (const Bytef*)((void*)(&FIRMIMG_HEADER) + sizeof(FIRMIMG_HEADER.crc32)),
+																FIRMIMG_HEADER_SIZE - sizeof(FIRMIMG_HEADER.crc32));
 
 		fseek(firmimg_file->fp, 0L, SEEK_SET);
+
 		fwrite(&FIRMIMG_HEADER, sizeof(char), sizeof(firmimg_header_t), firmimg_file->fp);
 		fwrite(FIRMIMG.images, sizeof(*FIRMIMG.images), FIRMIMG_HEADER.num_of_image, firmimg_file->fp);
 	}
@@ -357,8 +369,7 @@ static int do_compact(
 	char **path_images)
 {
 	firmimg_file_t *firmimg_file;
-	int ret;
-	char *path_image;
+	int ret, i;
 
 	firmimg_file = firmimg_open(path, "w+");
 	if(firmimg_file == NULL)
@@ -367,14 +378,13 @@ static int do_compact(
 	FIRMIMG_HEADER.header_version = FIRMIMG_HEADER_VERSION;
 	FIRMIMG_HEADER.image_type = FIRMIMG_IMAGE_iBMC;
 	FIRMIMG_HEADER.version = version;
-	FIRMIMG_HEADER.image_size = 56835584;
 	memcpy(FIRMIMG_HEADER.uboot_ver, uboot_ver, sizeof(FIRMIMG_HEADER.uboot_ver));
 	memcpy(FIRMIMG_HEADER.platform_id, platform_id, sizeof(FIRMIMG_HEADER.platform_id));
 
-	for(path_image = *path_images; path_image != NULL; path_images++) {
-		printf("Add %s to firmware image...", path_image);
+	for(i = 0; *(path_images + i) != NULL; i++) {
+		printf("Add %s to firmware image...", *(path_images + i));
 
-		ret = firmimg_add(firmimg_file, path_image);
+		ret = firmimg_add(firmimg_file, *(path_images + i));
 		if(ret < 0)
 			perror("Failed to add image");
 
