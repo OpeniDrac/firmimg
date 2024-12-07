@@ -5,10 +5,13 @@
 #include <zlib.h>
 #include <string.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 
 #define FIRMIMG firmimg_file->firmimg
 #define FIRMIMG_HEADER FIRMIMG.header
 #define GET_IMAGE(index) &FIRMIMG.images[index]
+#define CHECKSUM_STATUS(checksum, calculated) \
+	checksum == calculated ? "OK" : "KO"
 
 #define LEN(x) sizeof(x) / sizeof(x[0])
 
@@ -41,11 +44,13 @@ static uint32_t fcrc32(FILE *fp, const long int offset, const size_t length)
 
 static idrac_family_t get_idrac_family(const char *path)
 {
+	const char *file_name, *file_extension;
+
 	if(path == NULL)
 		return -1;
 
-	const char *file_name = strrchr(path, '/');
-	char* file_extension = strrchr(((file_name == NULL) ? path : file_name), '.');
+	file_name = strrchr(path, '/');
+	file_extension = strrchr(((file_name == NULL) ? path : file_name), '.');
 	if(file_extension == NULL)
 		return -1;
 
@@ -153,8 +158,9 @@ static int firmimg_add(firmimg_file_t *firmimg_file, const char* path)
 	{
 		if(fwrite(buffer, sizeof(Bytef), read_size, firmimg_file->fp) != read_size)
 		{
-			perror("Failed to write file for crc32");
+			perror("Failed to write image");
 			fclose(fp);
+
 			return -1;
 		}
 
@@ -172,7 +178,6 @@ static int firmimg_add(firmimg_file_t *firmimg_file, const char* path)
 
 static int firmimg_close(firmimg_file_t *firmimg_file)
 {
-	Bytef header_buffer[FIRMIMG_HEADER_SIZE];
 	int ret;
 
 	if(!firmimg_file)
@@ -228,8 +233,8 @@ static int do_info(const char *path)
 									FIRMIMG_HEADER_SIZE - sizeof(FIRMIMG_HEADER.crc32));
 
 	printf(
-		"Dell Remote Access Controller family : %d\n"
-		"Header checksum: %x (%x)\n"
+		"Dell Remote Access Controller family: %d\n"
+		"Header checksum: %x (%x %s)\n"
 		"Header version: %d\n"
 		"Num. of image(s): %d\n"
 		"Firmimg Version: %d.%d (Build %d)\n"
@@ -238,7 +243,7 @@ static int do_info(const char *path)
 		"AVCT U-Boot version: %d.%d.%d\n"
 		"Platform ID: %s (%s)\n",
 		firmimg_file->idrac_family,
-		FIRMIMG_HEADER.crc32, crc32_checksum,
+		FIRMIMG_HEADER.crc32, crc32_checksum, CHECKSUM_STATUS(FIRMIMG_HEADER.crc32, crc32_checksum),
 		FIRMIMG_HEADER.header_version,
 		FIRMIMG_HEADER.num_of_image,
 		FIRMIMG_HEADER.version.version, FIRMIMG_HEADER.version.sub_version, FIRMIMG_HEADER.version.build,
@@ -255,11 +260,11 @@ static int do_info(const char *path)
 			"Image %d:\n"
 			"Offset: %d\n"
 			"Size: %d bytes\n"
-			"Checksum: %x (%x)\n",
+			"Checksum: %x (%x %s)\n",
 			i,
 			image->offset,
 			image->size,
-			image->crc32, crc32_checksum);
+			image->crc32, crc32_checksum, CHECKSUM_STATUS(image->crc32, crc32_checksum));
 	}
 
 	firmimg_close(firmimg_file);
@@ -403,7 +408,6 @@ static int usage(void)
 		"	--info=FILE			Print firmware image information of FILE\n"
 		"	--extract=FILE			Extract image of FILE\n"
 		"	--compact=FILE			Compact images in FILE\n"
-		"	--family=FAMILY			Set iDRAC family\n"
 		"	--version=VERSION		Set firmware image version\n"
 		"	--build=BUILD			Set build number\n"
 		"	--uboot_version=VERSION		Set U-Boot version\n"
@@ -426,7 +430,9 @@ enum action_t
 static void vtob(void *dst, char *version, int offset, int limit)
 {
 	char *ptr;
-	int i = 0;
+	int i;
+
+	i = 0;
 
 	ptr = strtok(version, ".");
 	do
@@ -441,11 +447,11 @@ static void vtob(void *dst, char *version, int offset, int limit)
 
 int main(int argc, char *argv[])
 {
-	char *path_file = NULL;
+	char *path_file;
 	char *path_images[FIRMIMG_MAX_IMAGES];
-	enum action_t action = NONE;
+	enum action_t action;
 	firmimg_version_t version;
-	uint8_t uboot_ver[8] = {0};
+	uint8_t uboot_ver[8];
 	uint8_t plateform_id[4];
 	int c, i;
 
@@ -464,6 +470,9 @@ int main(int argc, char *argv[])
 	};
 
 	path_file = NULL;
+	action = NONE;
+	bzero(uboot_ver, sizeof(uboot_ver));
+	bzero(plateform_id, sizeof(plateform_id));
 
 	for(;;)
 	{

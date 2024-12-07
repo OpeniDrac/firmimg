@@ -14,7 +14,7 @@
 #define FIRMIMG_HEADER_VERSION	1
 #define FIRMIMG_IMAGE_iBMC			1
 
-/* There structures is based on U-Boot source code published by Dell (opensource.dell.com) */
+/* These structures are based on U-Boot source code published by Dell (opensource.dell.com) */
 
 typedef struct firmimg_version
 {
