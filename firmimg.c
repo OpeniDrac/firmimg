@@ -322,7 +322,7 @@ static int extract_image(firmimg_file_t *firmimg_file, firmimg_image_t *image, c
 	return crc32_checksum == image->crc32 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
-static int do_extract(const char *path)
+static int do_extract(const char *path, const char *output_dir)
 {
 	firmimg_file_t *firmimg_file;
 	uint32_t crc32_checksum;
@@ -354,7 +354,7 @@ static int do_extract(const char *path)
 	printf("Found %d images !\n", FIRMIMG_HEADER.num_of_image);
 	for(i = 0; i < FIRMIMG_HEADER.num_of_image; i++) {
 		printf("Image %d: ",  i);
-		snprintf(image_path, sizeof(image_path), "image_%d.dat", i);
+		snprintf(image_path, sizeof(image_path), "%s/image_%d.dat", output_dir, i);
 
 		ret = extract_image(firmimg_file, GET_IMAGE(i), image_path);
 		if(ret != EXIT_SUCCESS)
@@ -447,7 +447,7 @@ static void vtob(void *dst, char *version, int offset, int limit)
 
 int main(int argc, char *argv[])
 {
-	char *path_file;
+	char *path_file, *output_dir;
 	char *path_images[FIRMIMG_MAX_IMAGES];
 	enum action_t action;
 	firmimg_version_t version;
@@ -465,11 +465,13 @@ int main(int argc, char *argv[])
 		{"uboot_version", required_argument, NULL, 'u'},
 		{"avct_uboot_version", required_argument, NULL, 'a'},
 		{"platform_id", required_argument, NULL, 'p'},
+		{"directory", optional_argument, NULL, 'c'},
 		{"help", no_argument, NULL, 'h'},
 		{NULL, no_argument, NULL, 0}
 	};
 
 	path_file = NULL;
+	output_dir = "./";
 	action = NONE;
 	bzero(uboot_ver, sizeof(uboot_ver));
 	bzero(plateform_id, sizeof(plateform_id));
@@ -477,7 +479,7 @@ int main(int argc, char *argv[])
 	for(;;)
 	{
 		int option_index = 0;
-		c = getopt_long(argc, argv, "i:e:c:v:b:u:a:p:h", long_options, &option_index);
+		c = getopt_long(argc, argv, "i:e:c:v:b:u:a:p:C:h", long_options, &option_index);
 
 		if(c == -1)
 			break;
@@ -529,6 +531,9 @@ int main(int argc, char *argv[])
 					memcpy(plateform_id, IDRAC6_SVB_PLATFORM_ID, strlen(IDRAC6_SVB_PLATFORM_ID));
 				break;
 			}
+			case 'C':
+				output_dir = optarg;
+				break;
 			case 'h':
 			default:
 				return usage();
@@ -557,7 +562,7 @@ int main(int argc, char *argv[])
 			return do_info(path_file);
 			break;
 		case EXTRACT:
-			return do_extract(path_file);
+			return do_extract(path_file, output_dir);
 			break;
 		case COMPACT:
 			return do_compact(path_file, version, uboot_ver, plateform_id, path_images);
