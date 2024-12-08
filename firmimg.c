@@ -215,8 +215,10 @@ static int do_info(const char *path)
 {
 	firmimg_file_t *firmimg_file;
 	uint32_t crc32_checksum;
-	int i;
+	int ret, i;
 	firmimg_image_t *image;
+
+	ret = EXIT_SUCCESS;
 
 	firmimg_file = firmimg_open(path, "r");
 	if(firmimg_file == NULL)
@@ -231,6 +233,9 @@ static int do_info(const char *path)
 
 	crc32_checksum = fcrc32(firmimg_file->fp, sizeof(FIRMIMG_HEADER.crc32),
 									FIRMIMG_HEADER_SIZE - sizeof(FIRMIMG_HEADER.crc32));
+
+	if(FIRMIMG_HEADER.crc32 != crc32_checksum)
+		ret = EXIT_FAILURE;
 
 	printf(
 		"Dell Remote Access Controller family: %d\n"
@@ -256,6 +261,9 @@ static int do_info(const char *path)
 		image = GET_IMAGE(i);
 		crc32_checksum = fcrc32(firmimg_file->fp, image->offset, image->size);
 
+		if(image->crc32 != crc32_checksum)
+			ret = EXIT_FAILURE;
+
 		printf(
 			"Image %d:\n"
 			"Offset: %d\n"
@@ -269,7 +277,7 @@ static int do_info(const char *path)
 
 	firmimg_close(firmimg_file);
 
-	return EXIT_SUCCESS;
+	return ret;
 }
 
 static int extract_image(firmimg_file_t *firmimg_file, firmimg_image_t *image, const char *path)
