@@ -15,7 +15,9 @@ Is a tools for iDRAC family firmware update image
 # Images order
 
 Image 1: Kernel
+
 Image 2: RootFS (cramfs / SquashFS)
+
 Image 3: U-Boot
 
 # Example
